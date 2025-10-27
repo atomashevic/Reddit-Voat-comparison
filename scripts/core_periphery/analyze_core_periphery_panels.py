@@ -14,6 +14,56 @@ from typing import List, Tuple
 
 import pandas as pd
 import pyarrow.parquet as pq
+from scipy import stats
+import numpy as np
+
+
+def _compute_ci_with_t_dist(
+    mean_values: pd.Series,
+    std_values: pd.Series,
+    member_counts: pd.Series,
+    confidence_level: float = 0.95,
+) -> pd.DataFrame:
+    """Compute confidence intervals using t-distribution for per-user monthly means.
+
+    Returns DataFrame with ci_lower and ci_upper columns.
+    For N < 2, returns NaN (insufficient data for variance estimation).
+    """
+    ci = pd.DataFrame(index=mean_values.index, data={'ci_lower': np.nan, 'ci_upper': np.nan})
+
+    if mean_values.empty or std_values.empty or member_counts.empty:
+        return ci
+
+    # Align all series
+    aligned = pd.concat({
+        'mean': mean_values,
+        'std': std_values,
+        'count': member_counts
+    }, axis=1).dropna(subset=['mean', 'std', 'count'])
+
+    if aligned.empty:
+        return ci
+
+    # Only compute CI for N >= 2
+    valid = aligned[aligned['count'] >= 2].copy()
+
+    if valid.empty:
+        return ci
+
+    # Compute standard error
+    valid['se'] = valid['std'] / np.sqrt(valid['count'])
+
+    # Compute t critical value for each sample size (df = N - 1)
+    valid['t_crit'] = valid['count'].apply(
+        lambda n: stats.t.ppf((1 + confidence_level) / 2, df=n - 1)
+    )
+
+    # Compute CI bounds
+    half_width = valid['t_crit'] * valid['se']
+    ci.loc[valid.index, 'ci_lower'] = (valid['mean'] - half_width).astype(float)
+    ci.loc[valid.index, 'ci_upper'] = (valid['mean'] + half_width).astype(float)
+
+    return ci
 
 
 def _load_key_events(notes_path: str = 'notes/notes.md', three_events_only: bool = True):
@@ -234,17 +284,58 @@ def to_long_active_users(rep_monthly):
 
 
 def _to_long_monthly_rep_generic(rep_monthly, core_col, peri_col):
-    """Convert wide monthly reputation to long with label 0(core)/1(periphery)."""
+    """Convert wide monthly reputation to long with label 0(core)/1(periphery).
+
+    Also includes std_rep and member_count if available in the CSV.
+    """
     import pandas as pd
     if rep_monthly is None or rep_monthly.empty:
         return None
     df = rep_monthly.copy()
     if not {'month', core_col, peri_col}.issubset(df.columns):
         return None
-    core = df[['month', core_col]].rename(columns={core_col:'mean_rep'})
+
+    # Determine available std and count columns
+    core_std_col = core_col.replace('_mean_', '_std_') if '_mean_' in core_col else None
+    peri_std_col = peri_col.replace('_mean_', '_std_') if '_mean_' in peri_col else None
+
+    # Use n_core/n_periphery or active user counts as member_count
+    has_std = core_std_col and peri_std_col and {core_std_col, peri_std_col}.issubset(df.columns)
+    has_n_cols = {'n_core', 'n_periphery'}.issubset(df.columns)
+    has_active_cols = {'core_active_users', 'periphery_active_users'}.issubset(df.columns)
+
+    # Build core dataframe
+    core_cols = ['month', core_col]
+    core_rename = {core_col: 'mean_rep'}
+    if has_std and core_std_col in df.columns:
+        core_cols.append(core_std_col)
+        core_rename[core_std_col] = 'std_rep'
+    if has_n_cols:
+        core_cols.append('n_core')
+        core_rename['n_core'] = 'member_count'
+    elif has_active_cols:
+        core_cols.append('core_active_users')
+        core_rename['core_active_users'] = 'member_count'
+
+    core = df[core_cols].rename(columns=core_rename)
     core['label'] = 0
-    peri = df[['month', peri_col]].rename(columns={peri_col:'mean_rep'})
+
+    # Build periphery dataframe
+    peri_cols = ['month', peri_col]
+    peri_rename = {peri_col: 'mean_rep'}
+    if has_std and peri_std_col in df.columns:
+        peri_cols.append(peri_std_col)
+        peri_rename[peri_std_col] = 'std_rep'
+    if has_n_cols:
+        peri_cols.append('n_periphery')
+        peri_rename['n_periphery'] = 'member_count'
+    elif has_active_cols:
+        peri_cols.append('periphery_active_users')
+        peri_rename['periphery_active_users'] = 'member_count'
+
+    peri = df[peri_cols].rename(columns=peri_rename)
     peri['label'] = 1
+
     out = pd.concat([core, peri], ignore_index=True)
     out['month_dt'] = pd.to_datetime(out['month'] + '-01', errors='coerce')
     return out
@@ -294,9 +385,14 @@ def compute_group_metrics(labels_df: pd.DataFrame, data_df: pd.DataFrame, rep_df
     )
     g_user = user_month.groupby(['month','label'], as_index=False).agg(
         mean_toxicity=('u_mean_tox','mean'),
+        std_toxicity=('u_mean_tox','std'),
         mean_vader=('u_mean_vader','mean'),
+        std_vader=('u_mean_vader','std'),
         mean_tb=('u_mean_tb','mean'),
+        std_tb=('u_mean_tb','std'),
         mean_subj=('u_mean_subj','mean'),
+        std_subj=('u_mean_subj','std'),
+        member_count=('user_id','nunique'),
     )
     counts_user = user_month.groupby(['month','label'], as_index=False).agg(
         avg_posts_per_member=('u_posts','mean'),
@@ -329,7 +425,11 @@ def compute_group_reputation(labels_df: pd.DataFrame, rep_df: pd.DataFrame) -> t
     g_daily = j.groupby(['month','label'], as_index=False).agg(mean_rep=('reputation','mean'))
     # per-user monthly mean
     user_month = j.groupby(['month','label','user_id'], as_index=False).agg(u_mean_rep=('reputation','mean'))
-    g_user = user_month.groupby(['month','label'], as_index=False).agg(mean_rep=('u_mean_rep','mean'))
+    g_user = user_month.groupby(['month','label'], as_index=False).agg(
+        mean_rep=('u_mean_rep','mean'),
+        std_rep=('u_mean_rep','std'),
+        member_count=('user_id','nunique'),
+    )
     return g_daily, g_user
 
 
@@ -399,52 +499,187 @@ def plot_panels(
     if rep_mean is not None:
         def _plot_rep_mean(ax):
             # In monthly reputation long format, label 0=core, 1=periphery
-            core = rep_mean[rep_mean['label'] == 0]
-            peri = rep_mean[rep_mean['label'] == 1]
-            ax.plot(core['month_dt'], core['mean_rep'], label='core (mean)')
-            ax.plot(peri['month_dt'], peri['mean_rep'], label='periphery (mean)')
+            core = rep_mean[rep_mean['label'] == 0].copy()
+            peri = rep_mean[rep_mean['label'] == 1].copy()
+
+            # Plot lines
+            ax.plot(core['month_dt'], core['mean_rep'], label='core (mean)', color='C0')
+            ax.plot(peri['month_dt'], peri['mean_rep'], label='periphery (mean)', color='C1')
+
+            # Add CI bands if std and member_count are available
+            if {'std_rep', 'member_count'}.issubset(core.columns):
+                core_ci = _compute_ci_with_t_dist(core['mean_rep'], core['std_rep'], core['member_count'])
+                mask = core_ci['ci_lower'].notna() & core_ci['ci_upper'].notna()
+                if mask.any():
+                    ax.fill_between(
+                        core.loc[mask, 'month_dt'],
+                        core_ci.loc[mask, 'ci_lower'],
+                        core_ci.loc[mask, 'ci_upper'],
+                        color='C0', alpha=0.15, linewidth=0
+                    )
+
+            if {'std_rep', 'member_count'}.issubset(peri.columns):
+                peri_ci = _compute_ci_with_t_dist(peri['mean_rep'], peri['std_rep'], peri['member_count'])
+                mask = peri_ci['ci_lower'].notna() & peri_ci['ci_upper'].notna()
+                if mask.any():
+                    ax.fill_between(
+                        peri.loc[mask, 'month_dt'],
+                        peri_ci.loc[mask, 'ci_lower'],
+                        peri_ci.loc[mask, 'ci_upper'],
+                        color='C1', alpha=0.15, linewidth=0
+                    )
+
             ax.set_title(f"{community} - Mean reputation (monthly)")
             ax.legend(loc='upper left')
+            # No y-limit constraint for reputation (range varies by platform)
         panels.append(("rep_mean", _plot_rep_mean))
 
     # 3) Toxicity (per-user monthly means)
     def _plot_toxicity(ax):
-        core = met_user[met_user['label'] == 0]
-        peri = met_user[met_user['label'] == 1]
-        ax.plot(core['month_dt'], core['mean_toxicity'], label='core')
-        ax.plot(peri['month_dt'], peri['mean_toxicity'], label='periphery')
+        core = met_user[met_user['label'] == 0].copy()
+        peri = met_user[met_user['label'] == 1].copy()
+
+        # Plot lines
+        ax.plot(core['month_dt'], core['mean_toxicity'], label='core', color='C0')
+        ax.plot(peri['month_dt'], peri['mean_toxicity'], label='periphery', color='C1')
+
+        # Add CI bands if std and member_count are available
+        if {'std_toxicity', 'member_count'}.issubset(core.columns):
+            core_ci = _compute_ci_with_t_dist(core['mean_toxicity'], core['std_toxicity'], core['member_count'])
+            mask = core_ci['ci_lower'].notna() & core_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    core.loc[mask, 'month_dt'],
+                    core_ci.loc[mask, 'ci_lower'],
+                    core_ci.loc[mask, 'ci_upper'],
+                    color='C0', alpha=0.15, linewidth=0
+                )
+
+        if {'std_toxicity', 'member_count'}.issubset(peri.columns):
+            peri_ci = _compute_ci_with_t_dist(peri['mean_toxicity'], peri['std_toxicity'], peri['member_count'])
+            mask = peri_ci['ci_lower'].notna() & peri_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    peri.loc[mask, 'month_dt'],
+                    peri_ci.loc[mask, 'ci_lower'],
+                    peri_ci.loc[mask, 'ci_upper'],
+                    color='C1', alpha=0.15, linewidth=0
+                )
+
         ax.set_title(f"{community} - Mean toxicity (per user/month)")
         ax.legend(loc='upper left')
+        ax.set_ylim(0.0, 1.0)
     panels.append(("toxicity", _plot_toxicity))
 
     # 4) Sentiment VADER (per-user monthly means)
     def _plot_vader(ax):
-        core = met_user[met_user['label'] == 0]
-        peri = met_user[met_user['label'] == 1]
-        ax.plot(core['month_dt'], core['mean_vader'], label='core')
-        ax.plot(peri['month_dt'], peri['mean_vader'], label='periphery')
+        core = met_user[met_user['label'] == 0].copy()
+        peri = met_user[met_user['label'] == 1].copy()
+
+        # Plot lines
+        ax.plot(core['month_dt'], core['mean_vader'], label='core', color='C0')
+        ax.plot(peri['month_dt'], peri['mean_vader'], label='periphery', color='C1')
+
+        # Add CI bands if std and member_count are available
+        if {'std_vader', 'member_count'}.issubset(core.columns):
+            core_ci = _compute_ci_with_t_dist(core['mean_vader'], core['std_vader'], core['member_count'])
+            mask = core_ci['ci_lower'].notna() & core_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    core.loc[mask, 'month_dt'],
+                    core_ci.loc[mask, 'ci_lower'],
+                    core_ci.loc[mask, 'ci_upper'],
+                    color='C0', alpha=0.15, linewidth=0
+                )
+
+        if {'std_vader', 'member_count'}.issubset(peri.columns):
+            peri_ci = _compute_ci_with_t_dist(peri['mean_vader'], peri['std_vader'], peri['member_count'])
+            mask = peri_ci['ci_lower'].notna() & peri_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    peri.loc[mask, 'month_dt'],
+                    peri_ci.loc[mask, 'ci_lower'],
+                    peri_ci.loc[mask, 'ci_upper'],
+                    color='C1', alpha=0.15, linewidth=0
+                )
+
         ax.set_title(f"{community} - Sentiment VADER (per user/month)")
         ax.legend(loc='upper left')
+        ax.set_ylim(-1.0, 1.0)
     panels.append(("vader", _plot_vader))
 
     # 5) Sentiment TextBlob (per-user monthly means)
     def _plot_tb(ax):
-        core = met_user[met_user['label'] == 0]
-        peri = met_user[met_user['label'] == 1]
-        ax.plot(core['month_dt'], core['mean_tb'], label='core')
-        ax.plot(peri['month_dt'], peri['mean_tb'], label='periphery')
+        core = met_user[met_user['label'] == 0].copy()
+        peri = met_user[met_user['label'] == 1].copy()
+
+        # Plot lines
+        ax.plot(core['month_dt'], core['mean_tb'], label='core', color='C0')
+        ax.plot(peri['month_dt'], peri['mean_tb'], label='periphery', color='C1')
+
+        # Add CI bands if std and member_count are available
+        if {'std_tb', 'member_count'}.issubset(core.columns):
+            core_ci = _compute_ci_with_t_dist(core['mean_tb'], core['std_tb'], core['member_count'])
+            mask = core_ci['ci_lower'].notna() & core_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    core.loc[mask, 'month_dt'],
+                    core_ci.loc[mask, 'ci_lower'],
+                    core_ci.loc[mask, 'ci_upper'],
+                    color='C0', alpha=0.15, linewidth=0
+                )
+
+        if {'std_tb', 'member_count'}.issubset(peri.columns):
+            peri_ci = _compute_ci_with_t_dist(peri['mean_tb'], peri['std_tb'], peri['member_count'])
+            mask = peri_ci['ci_lower'].notna() & peri_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    peri.loc[mask, 'month_dt'],
+                    peri_ci.loc[mask, 'ci_lower'],
+                    peri_ci.loc[mask, 'ci_upper'],
+                    color='C1', alpha=0.15, linewidth=0
+                )
+
         ax.set_title(f"{community} - Sentiment TextBlob (per user/month)")
         ax.legend(loc='upper left')
+        ax.set_ylim(-1.0, 1.0)
     panels.append(("tb", _plot_tb))
 
     # 6) Subjectivity (per-user monthly means)
     def _plot_subj(ax):
-        core = met_user[met_user['label'] == 0]
-        peri = met_user[met_user['label'] == 1]
-        ax.plot(core['month_dt'], core['mean_subj'], label='core')
-        ax.plot(peri['month_dt'], peri['mean_subj'], label='periphery')
+        core = met_user[met_user['label'] == 0].copy()
+        peri = met_user[met_user['label'] == 1].copy()
+
+        # Plot lines
+        ax.plot(core['month_dt'], core['mean_subj'], label='core', color='C0')
+        ax.plot(peri['month_dt'], peri['mean_subj'], label='periphery', color='C1')
+
+        # Add CI bands if std and member_count are available
+        if {'std_subj', 'member_count'}.issubset(core.columns):
+            core_ci = _compute_ci_with_t_dist(core['mean_subj'], core['std_subj'], core['member_count'])
+            mask = core_ci['ci_lower'].notna() & core_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    core.loc[mask, 'month_dt'],
+                    core_ci.loc[mask, 'ci_lower'],
+                    core_ci.loc[mask, 'ci_upper'],
+                    color='C0', alpha=0.15, linewidth=0
+                )
+
+        if {'std_subj', 'member_count'}.issubset(peri.columns):
+            peri_ci = _compute_ci_with_t_dist(peri['mean_subj'], peri['std_subj'], peri['member_count'])
+            mask = peri_ci['ci_lower'].notna() & peri_ci['ci_upper'].notna()
+            if mask.any():
+                ax.fill_between(
+                    peri.loc[mask, 'month_dt'],
+                    peri_ci.loc[mask, 'ci_lower'],
+                    peri_ci.loc[mask, 'ci_upper'],
+                    color='C1', alpha=0.15, linewidth=0
+                )
+
         ax.set_title(f"{community} - Subjectivity (per user/month)")
         ax.legend(loc='upper left')
+        ax.set_ylim(0.0, 1.0)
     panels.append(("subj", _plot_subj))
 
     # Determine grid: two columns
