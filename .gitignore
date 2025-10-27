@@ -1,3 +1,25 @@
+# Project-specific
 AGENTS.md
 tmp/
 notes/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Large data directories - exclude by default
+data/
+networks/
+results/
+
+# But include PNG figures from results
+!results/**/*.png
