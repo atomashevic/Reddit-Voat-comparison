@@ -2,7 +2,8 @@
 AGENTS.md
 tmp/
 notes/
-
+.claude/
+backups/
 # Python
 .venv/
 __pycache__/
@@ -24,3 +25,30 @@ results/
 # But include PNG figures from results
 !results/**/*.png
 !results/networks/compare/figures/*.png
+
+# Exclude large data files in results (but allow PNGs via above exceptions)
+results/**/*.parquet
+results/**/*.csv
+results/**/*.h5
+results/**/*.hdf5
+results/**/*.hdf
+results/**/*.log
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.pdf
+*.tex
+!presentation.md
+
+# Presentation files
+*.pptx
+*.ppt
+
+# Documentation files (exclude specific ones, but allow tracked ones)
+CLAUDE.md
+ALTERNATIVE_PIPELINE_README.md
+reddit-voat-behavior-metrics.md
+reddit-voat-networks.md
+research-summary.md
