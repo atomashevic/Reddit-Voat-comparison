@@ -35,7 +35,7 @@ fi
 
 shift
 while [[ $# -gt 0 ]]; do
-    case $1 in
+    case "$1" in
         --skip-phase-1) SKIP_PHASE_1=true; shift ;;
         --skip-phase-2) SKIP_PHASE_2=true; shift ;;
         --skip-phase-3) SKIP_PHASE_3=true; shift ;;
@@ -286,6 +286,9 @@ else
          cp "$SOURCE_FILE" "$TARGET_FILE"
          print_success "Copied from basic results"
     else
+        # Pass the explicit path to the user metrics we just built in Step 1.1
+        USER_METRICS_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
+        
         run_python_script \
             "scripts/aggregate_monthly_metrics_global.py" \
             "1.4: Aggregating Reddit monthly metrics" \
@@ -294,6 +297,7 @@ else
             --basic-dir "results/alternative" \
             --networks-dir "$ALT_ROOT/networks" \
             --output-dir "$ALT_REDDIT" \
+            --input-file "$USER_METRICS_FILE" \
             --log-level INFO
     fi
 
@@ -310,6 +314,9 @@ else
          cp "$SOURCE_FILE" "$TARGET_FILE"
          print_success "Copied from basic results"
     else
+        # Pass explicit path to the user metrics we built in Step 1.2
+        USER_METRICS_FILE="${ALT_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
+
         run_python_script \
             "scripts/aggregate_monthly_metrics_global.py" \
             "1.5: Aggregating Voat monthly metrics" \
@@ -318,6 +325,7 @@ else
             --basic-dir "results/alternative" \
             --networks-dir "$ALT_ROOT/networks" \
             --output-dir "$ALT_VOAT" \
+            --input-file "$USER_METRICS_FILE" \
             --log-level INFO
     fi
 
@@ -336,12 +344,18 @@ else
     print_header "PHASE 2: Reddit-Voat Comparison (3 steps)"
 
     # Step 2.1: Bootstrap
+    # Pass explicit paths to user metrics from Phase 1
+    REDDIT_METRICS_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
+    VOAT_METRICS_FILE="${ALT_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
+
     run_python_script \
         "scripts/compare_global_bootstrap.py" \
         "2.1: Generating activity-matched bootstrap samples" \
         --community "$COMMUNITY" \
         --basic-dir "results/alternative" \
         --output-dir "$ALT_COMPARE" \
+        --reddit-metrics "$REDDIT_METRICS_FILE" \
+        --voat-metrics "$VOAT_METRICS_FILE" \
         --bootstrap-iterations "$BOOTSTRAP_ITERATIONS" \
         --seed "$RANDOM_SEED" \
         --log-level INFO
@@ -472,7 +486,7 @@ else
         "scripts/plot_newcomer_dynamics.py" \
         "4.2: Creating newcomer dynamics plot" \
         --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
+        --basic-dir "$ALT_ROOT" \
         --output-dir "$ALT_FIGURES"
 
     check_file_exists \
@@ -484,24 +498,12 @@ else
         "scripts/plot_cumulative_newcomer_periods.py" \
         "4.3: Creating cumulative period comparison plot" \
         --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
+        --basic-dir "$ALT_ROOT" \
         --output-dir "$ALT_FIGURES"
 
     check_file_exists \
         "${ALT_FIGURES}/${COMMUNITY}_cumulative_newcomer_periods.png" \
         "Cumulative periods figure"
-
-    # Plot 4.4: Event effects
-    run_python_script \
-        "scripts/plot_event_effects_global.py" \
-        "4.4: Creating event effects plot" \
-        --community "$COMMUNITY" \
-        --compare-dir "results/alternative" \
-        --output-dir "$ALT_FIGURES"
-
-    check_file_exists \
-        "${ALT_FIGURES}/${COMMUNITY}_global_event_effects.png" \
-        "Event effects figure"
 
     print_success "Phase 4 complete: All visualizations created"
 fi

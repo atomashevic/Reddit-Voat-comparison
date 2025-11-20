@@ -125,6 +125,17 @@ def compute_path_metrics(g: nx.Graph) -> Dict[str, float]:
     giant_size = len(giant)
     giant_frac = giant_size / g.number_of_nodes()
 
+    # Optimization: Skip expensive path metrics for large graphs
+    # Calculating average shortest path is O(V * (V + E)), which is intractable for V > ~5-10k in Python
+    if giant_size > 5000:
+        logger.info(f"Skipping path metrics for large component (size={giant_size} > 5000)")
+        return {
+            "avg_shortest_path": float("nan"),
+            "diameter": float("nan"),
+            "giant_component_size": giant_size,
+            "giant_component_fraction": giant_frac,
+        }
+
     gcc = g.subgraph(giant).copy()
 
     if gcc.number_of_edges() == 0 or giant_size == 1:

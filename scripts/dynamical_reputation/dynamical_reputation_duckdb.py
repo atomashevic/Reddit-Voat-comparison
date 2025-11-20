@@ -95,16 +95,26 @@ def _compute_user_ru(
     if not times:
         return []
 
-    times_array = np.asarray(times, dtype=np.int64)
+    # Optimization: Avoid concatenating if it's a list of arrays
+    if isinstance(times, list) and len(times) > 0 and isinstance(times[0], np.ndarray):
+        times_array = np.concatenate(times)
+    else:
+        times_array = np.asarray(times, dtype=np.int64)
+
     if times_array.size > 1 and np.any(times_array[1:] < times_array[:-1]):
         times_array = np.sort(times_array, kind="mergesort")
 
-    timestamps = pd.to_datetime(times_array, unit="s")
-    day_offsets = ((timestamps - base_ts) / np.timedelta64(1, "D")).astype(int)
-
+    # Optimization: Use integer arithmetic instead of pandas datetime conversion
+    # timestamps = pd.to_datetime(times_array, unit="s")
+    # day_offsets = ((timestamps - base_ts) / np.timedelta64(1, "D")).astype(int)
+    
+    base_ts_sec = int(base_ts.timestamp())
+    day_offsets = (times_array - base_ts_sec) // 86400
+    
     Ru: dict[int, float] = {}
     first_day = int(day_offsets[0])
-    first_date = pd.Timestamp(timestamps[0])
+    # first_date = pd.Timestamp(timestamps[0])
+    first_date = pd.Timestamp(times_array[0], unit="s")
     A = 1
     Ru[first_day] = Ib + Ib * alpha * (1.0 - 1.0 / (A + 1))
     last_day = int(first_day)
@@ -112,9 +122,9 @@ def _compute_user_ru(
     last_activity_day = int(first_day)
     decay_flag = _normalize_decay_flag(decay_per_day)
 
-    for idx in range(1, len(timestamps)):
+    for idx in range(1, len(times_array)):
         curr_day = int(day_offsets[idx])
-        curr_activity_date = pd.Timestamp(timestamps[idx])
+        curr_activity_date = pd.Timestamp(times_array[idx], unit="s")
         if curr_day > (last_day + 1):
             gaps = curr_day - last_day - 1
             if gaps > 0:
@@ -493,7 +503,7 @@ def stream_reputation(
     users_total = 0
     events_total = 0
     current_user = None
-    buffer_times: List[int] = []
+    buffer_times: List[np.ndarray] = []
     proc = psutil.Process()
     chunk_index = 0
     progress_every = max(1, args.progress_every)
@@ -543,7 +553,7 @@ def stream_reputation(
                 if end_idx > start_idx:
                     segment = times_array[start_idx:end_idx]
                     if segment.size:
-                        buffer_times.extend(int(ts) for ts in segment)
+                        buffer_times.append(segment)
                 start_idx = end_idx
             if chunk_index % progress_every == 0:
                 rss = proc.memory_info().rss / (1024 ** 3)

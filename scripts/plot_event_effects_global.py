@@ -21,9 +21,15 @@ def main():
     args = parse_args()
     logging.basicConfig(level=logging.INFO)
     
-    path = args.compare_dir / f"{args.community}_global_event_window_summary.csv"
-    if not path.exists():
-        logging.error(f"Input not found: {path}")
+    filename = f"{args.community}_global_event_window_summary.csv"
+    candidates = [
+        args.compare_dir / filename,
+        args.compare_dir.parent / "compare" / filename,
+        args.compare_dir.parent / filename,
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        logging.error(f"Input not found. Tried: {candidates}")
         return
         
     df = pd.read_csv(path)
@@ -55,4 +61,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

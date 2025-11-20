@@ -32,6 +32,8 @@ import numpy as np
 import pandas as pd
 import psutil
 import pyarrow as pa
+import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -109,16 +111,42 @@ def _compute_user_ru(
     if not times:
         return []
 
-    times_array = np.asarray(times, dtype=np.int64)
+    # Optimization: Avoid concatenating if it's a list of arrays
+    if isinstance(times, list) and len(times) > 0 and isinstance(times[0], np.ndarray):
+        times_array = np.concatenate(times)
+    else:
+        times_array = np.asarray(times, dtype=np.int64)
+
     if times_array.size > 1 and np.any(times_array[1:] < times_array[:-1]):
         times_array = np.sort(times_array, kind="mergesort")
 
-    timestamps = pd.to_datetime(times_array, unit="s")
-    day_offsets = ((timestamps - base_ts) / np.timedelta64(1, "D")).astype(int)
-
+    # Optimization: Use integer arithmetic instead of pandas datetime conversion
+    # timestamps = pd.to_datetime(times_array, unit="s")
+    # day_offsets = ((timestamps - base_ts) / np.timedelta64(1, "D")).astype(int)
+    
+    base_ts_sec = int(base_ts.timestamp())
+    day_offsets = (times_array - base_ts_sec) // 86400
+    
+    # Reconstruct timestamps only when needed (for first_date)
+    # But we only need first_date for last_activity_date logic.
+    # actually last_activity_date is a Timestamp.
+    # Let's keep using Timestamps for the logic but avoid creating the huge Index.
+    
+    # We need to map index to timestamp for the loop
+    # timestamps array is needed?
+    # The loop uses: curr_activity_date = pd.Timestamp(timestamps[idx])
+    # This is slow if we do it for every item.
+    # But creating the whole Index is memory heavy.
+    # We can create timestamps on the fly.
+    
     Ru: dict[int, float] = {}
     first_day = int(day_offsets[0])
-    first_date = pd.Timestamp(timestamps[0])
+    # first_date = pd.Timestamp(timestamps[0]) 
+    first_date = base_ts + pd.to_timedelta(times_array[0], unit="s") - pd.to_timedelta(base_ts_sec, unit="s")
+    # Wait, base_ts is Timestamp. 
+    # first_date = pd.to_datetime(times_array[0], unit="s")
+    first_date = pd.Timestamp(times_array[0], unit="s")
+
     A = 1
     Ru[first_day] = Ib + Ib * alpha * (1.0 - 1.0 / (A + 1))
     last_day = int(first_day)
@@ -126,9 +154,10 @@ def _compute_user_ru(
     last_activity_day = int(first_day)
     decay_flag = _normalize_decay_flag(decay_per_day)
 
-    for idx in range(1, len(timestamps)):
+    for idx in range(1, len(times_array)):
         curr_day = int(day_offsets[idx])
-        curr_activity_date = pd.Timestamp(timestamps[idx])
+        # curr_activity_date = pd.Timestamp(timestamps[idx])
+        curr_activity_date = pd.Timestamp(times_array[idx], unit="s")
         if curr_day > (last_day + 1):
             gaps = curr_day - last_day - 1
             if gaps > 0:
@@ -189,7 +218,7 @@ def _compute_user_ru(
 # --- Batch processing worker function ---------------------------------------
 
 def process_user_batch(
-    batch_data: Tuple[List[Tuple[str, List[int]]], pd.Timestamp, int, float, float, float, bool]
+    batch_data: Tuple[List[Tuple[str, List[np.ndarray]]], pd.Timestamp, int, float, float, float, bool]
 ) -> List[Tuple[str, int, float]]:
     """
     Process a batch of users in parallel.
@@ -434,10 +463,10 @@ def process_file_hybrid(filepath: str, args) -> dict:
     batches_submitted = 0
     batches_completed = 0
 
-    # Stream data and collect users into batches
+    # Stream data and collect    # Stream and batch users
     current_user = None
-    buffer_times: List[int] = []
-    user_batch: List[Tuple[str, List[int]]] = []
+    buffer_times: List[np.ndarray] = []
+    user_batch: List[Tuple[str, List[np.ndarray]]] = []
 
     proc = psutil.Process()
 
@@ -488,20 +517,30 @@ def process_file_hybrid(filepath: str, args) -> dict:
                 events_total += batch_size
 
                 # Extract user_ids and timestamps
-                user_ids = batch.column(0).to_pylist()
-                timestamps = batch.column(1).to_numpy(zero_copy_only=False)
-
-                for idx, (uid, ts) in enumerate(zip(user_ids, timestamps)):
+                # Extract user_ids and timestamps
+                # Use run_end_encode for efficient grouping
+                encoded_users = pc.run_end_encode(batch.column(0))
+                run_ends = encoded_users.run_ends.to_numpy(zero_copy_only=False)
+                values = encoded_users.values
+                
+                # Timestamps array for the whole batch
+                times_array = batch.column(1).to_numpy(zero_copy_only=False)
+                
+                start_idx = 0
+                for value_index in range(len(values)):
+                    uid = values[value_index].as_py()
+                    end_idx = int(run_ends[value_index])
+                    
                     if current_user is None:
                         current_user = uid
-
+                    
                     if uid != current_user:
                         # Finished current user, add to batch
                         user_batch.append((current_user, buffer_times))
                         users_total += 1
                         buffer_times = []
                         current_user = uid
-
+                        
                         # Submit batch if full
                         if len(user_batch) >= args.batch_users:
                             # CRITICAL: Limit concurrent futures to prevent memory explosion
@@ -517,7 +556,7 @@ def process_file_hybrid(filepath: str, args) -> dict:
                                     rows_total += len(rows)
                                     batches_completed += 1
                                     del rows
-
+                                    
                                     if batches_completed % 10 == 0:
                                         rss = proc.memory_info().rss / (1024 ** 3)
                                         print(
@@ -529,7 +568,7 @@ def process_file_hybrid(filepath: str, args) -> dict:
                                                 f"RSS {rss:.2f}GB exceeded limit {args.max_memory_gb:.2f}GB"
                                             )
                                 gc.collect()
-
+                            
                             batch_data = (
                                 user_batch.copy(),
                                 base_ts,
@@ -543,8 +582,13 @@ def process_file_hybrid(filepath: str, args) -> dict:
                             futures[future] = batches_submitted
                             batches_submitted += 1
                             user_batch = []
-
-                    buffer_times.append(int(ts))
+                    
+                    if end_idx > start_idx:
+                        segment = times_array[start_idx:end_idx]
+                        if segment.size:
+                            # Append numpy array segment directly
+                            buffer_times.append(segment)
+                    start_idx = end_idx
 
                 # Process completed futures (non-blocking check)
                 done_futures = [f for f in futures if f.done()]

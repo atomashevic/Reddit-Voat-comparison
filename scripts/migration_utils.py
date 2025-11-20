@@ -40,15 +40,17 @@ def load_monthly_aggregates(
     base_dir: Path, platform: str, community: str
 ) -> pd.DataFrame:
     """Load aggregated monthly metrics for a community."""
-    path = base_dir / platform / "results" / f"{platform}_{community}_monthly_aggregates.csv"
-    if not path.exists():
-        # Fallback to basic results if alternative missing
-        fallback = Path("results/basic") / platform / "results" / path.name
-        if fallback.exists():
-            path = fallback
-        else:
-            raise FileNotFoundError(f"Monthly aggregates not found: {path}")
-    
+    filename = f"{platform}_{community}_monthly_aggregates.csv"
+    candidates = [
+        base_dir / platform / "results" / filename,     # canonical basic layout
+        base_dir / platform / filename,                 # alternative pipeline layout (flattened)
+        Path("results/basic") / platform / "results" / filename,  # global basic fallback
+    ]
+
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        raise FileNotFoundError(f"Monthly aggregates not found in: {candidates}")
+
     df = pd.read_csv(path)
     df["month_dt"] = pd.to_datetime(df["month"] + "-01")
     df["platform"] = platform
@@ -68,3 +70,20 @@ def get_event_window(
     
     return pre, post
 
+
+def newcomer_label_for_month(first_seen: pd.Timestamp, month_dt: pd.Timestamp) -> str:
+    """Assign newcomer/existing label for a given month, based on first_seen and event periods.
+
+    Rules:
+      - pre-A months: everyone is existing
+      - Month in [A, B): newcomer iff first_seen >= A
+      - Month in [B, C): newcomer iff first_seen >= B
+      - Month >= C: newcomer iff first_seen >= C
+    """
+    if month_dt < EVENTS["A"]:
+        return "existing"
+    if EVENTS["A"] <= month_dt < EVENTS["B"]:
+        return "newcomer" if first_seen >= EVENTS["A"] else "existing"
+    if EVENTS["B"] <= month_dt < EVENTS["C"]:
+        return "newcomer" if first_seen >= EVENTS["B"] else "existing"
+    return "newcomer" if first_seen >= EVENTS["C"] else "existing"

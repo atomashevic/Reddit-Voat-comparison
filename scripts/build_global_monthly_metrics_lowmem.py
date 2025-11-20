@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Optional
 
 import duckdb
-import pandas as pd
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -32,6 +31,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--skip-reputation", action="store_true", help="Skip reputation merging")
+    parser.add_argument("--memory-limit", default="24GB", help="DuckDB memory limit (default: 24GB)")
+    parser.add_argument(
+        "--temp-dir",
+        type=Path,
+        default=REPO_ROOT / "tmp" / "duckdb_spill",
+        help="Directory for DuckDB temp/spill files (default: tmp/duckdb_spill)",
+    )
     return parser.parse_args()
 
 
@@ -40,74 +46,6 @@ def parquet_path(data_dir: Path, platform: str, community: str) -> Path:
     if not path.exists():
         raise FileNotFoundError(f"Parquet file not found: {path}")
     return path
-
-
-def build_user_month_metrics(parquet_file: Path) -> pd.DataFrame:
-    """Extract per-user monthly behavioral metrics using DuckDB streaming."""
-    conn = duckdb.connect()
-    conn.execute("PRAGMA memory_limit='4GB'")
-    conn.execute("PRAGMA threads=2")
-
-    query = f"""
-        WITH base AS (
-            SELECT
-                CAST(user_id AS VARCHAR) AS user_id,
-                LOWER(CAST(interaction_type AS VARCHAR)) AS interaction_type,
-                CAST(publish_date AS DOUBLE) AS publish_date,
-                CAST(sentiment_vader AS DOUBLE) AS sentiment_vader,
-                CAST(sentiment_textblob AS DOUBLE) AS sentiment_textblob,
-                CAST(subjectivity_textblob AS DOUBLE) AS subjectivity_textblob,
-                CAST(toxicity_toxigen AS DOUBLE) AS toxicity_toxigen
-            FROM read_parquet('{parquet_file.as_posix()}')
-        ),
-        cleaned AS (
-            SELECT
-                user_id,
-                interaction_type,
-                CASE WHEN publish_date IS NULL THEN NULL
-                     WHEN publish_date > 100000000000 THEN publish_date / 1000
-                     ELSE publish_date END AS ts_seconds,
-                sentiment_vader,
-                sentiment_textblob,
-                subjectivity_textblob,
-                toxicity_toxigen
-            FROM base
-            WHERE user_id IS NOT NULL
-        ),
-        filtered AS (
-            SELECT
-                *,
-                strftime('%Y-%m', CAST(to_timestamp(ts_seconds) AS TIMESTAMP)) AS month
-            FROM cleaned
-            WHERE interaction_type IN ('post', 'comment')
-              AND ts_seconds IS NOT NULL
-        )
-        SELECT
-            user_id,
-            month,
-            AVG(toxicity_toxigen) AS mean_toxicity,
-            AVG(sentiment_vader) AS mean_vader,
-            AVG(sentiment_textblob) AS mean_textblob,
-            AVG(subjectivity_textblob) AS mean_subjectivity,
-            COUNT(*) AS activity_count
-        FROM filtered
-        WHERE month IS NOT NULL
-        GROUP BY user_id, month
-    """
-
-    logging.info("Executing DuckDB query (streaming from parquet)...")
-    df = conn.execute(query).df()
-    conn.close()
-
-    df = df.dropna(subset=["month"])
-    df["month"] = df["month"].astype(str)
-
-    logging.info(
-        f"Extracted {len(df):,} user-month records "
-        f"({df['user_id'].nunique():,} unique users, {df['month'].nunique()} months)"
-    )
-
-    return df
 
 
 def find_reputation_file(reputation_dir: Path, platform: str, community: str) -> Optional[Path]:
@@ -129,76 +67,146 @@ def find_reputation_file(reputation_dir: Path, platform: str, community: str) ->
     return None
 
 
-def aggregate_reputation_with_duckdb(reputation_file: Path) -> pd.DataFrame:
-    """Aggregate daily reputation to monthly using DuckDB (memory-efficient)."""
+def run_duckdb_pipeline(
+    parquet_file: Path,
+    reputation_file: Optional[Path],
+    output_file: Path,
+    memory_limit: str,
+    temp_dir: Path,
+) -> None:
+    """Execute the full extraction and merge pipeline using DuckDB SQL."""
+
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
     conn = duckdb.connect()
-    conn.execute("PRAGMA memory_limit='4GB'")
-    conn.execute("PRAGMA threads=2")
+    conn.execute(f"PRAGMA memory_limit='{memory_limit}'")
+    conn.execute(f"PRAGMA temp_directory='{temp_dir.as_posix()}'")
+    conn.execute("PRAGMA threads=4")
 
-    logging.info("Aggregating reputation with DuckDB (streaming)...")
+    logging.info(f"DuckDB initialized with {memory_limit} RAM limit")
 
-    query = f"""
-        WITH reputation_base AS (
+    # 1. Define Behavioral CTE
+    behavioral_cte = f"""
+        behavioral_base AS (
+            SELECT
+                CAST(user_id AS VARCHAR) AS user_id,
+                LOWER(CAST(interaction_type AS VARCHAR)) AS interaction_type,
+                CAST(publish_date AS DOUBLE) AS publish_date,
+                CAST(sentiment_vader AS DOUBLE) AS sentiment_vader,
+                CAST(sentiment_textblob AS DOUBLE) AS sentiment_textblob,
+                CAST(subjectivity_textblob AS DOUBLE) AS subjectivity_textblob,
+                CAST(toxicity_toxigen AS DOUBLE) AS toxicity_toxigen
+            FROM read_parquet('{parquet_file.as_posix()}')
+        ),
+        behavioral_cleaned AS (
+            SELECT
+                user_id,
+                CASE WHEN publish_date IS NULL THEN NULL
+                     WHEN publish_date > 100000000000 THEN publish_date / 1000
+                     ELSE publish_date END AS ts_seconds,
+                sentiment_vader,
+                sentiment_textblob,
+                subjectivity_textblob,
+                toxicity_toxigen
+            FROM behavioral_base
+            WHERE user_id IS NOT NULL
+              AND interaction_type IN ('post', 'comment')
+        ),
+        behavioral_monthly AS (
+            SELECT
+                user_id,
+                strftime('%Y-%m', CAST(to_timestamp(ts_seconds) AS TIMESTAMP)) AS month,
+                AVG(toxicity_toxigen) AS mean_toxicity,
+                AVG(sentiment_vader) AS mean_vader,
+                AVG(sentiment_textblob) AS mean_textblob,
+                AVG(subjectivity_textblob) AS mean_subjectivity,
+                COUNT(*) AS activity_count
+            FROM behavioral_cleaned
+            WHERE ts_seconds IS NOT NULL
+            GROUP BY user_id, month
+            HAVING month IS NOT NULL
+        )
+    """
+
+    # 2. Define Reputation CTE (if exists)
+    if reputation_file:
+        reputation_cte = f"""
+        , reputation_base AS (
             SELECT
                 CAST(user_id AS VARCHAR) AS user_id,
                 CAST(reputation AS DOUBLE) AS reputation,
                 CAST(date AS TIMESTAMP) AS date
             FROM read_parquet('{reputation_file.as_posix()}')
         ),
-        with_month AS (
+        reputation_monthly AS (
             SELECT
                 user_id,
-                reputation,
-                strftime('%Y-%m', date) AS month
+                strftime('%Y-%m', date) AS month,
+                AVG(reputation) AS mean_reputation,
+                COUNT(*) AS active_days
             FROM reputation_base
             WHERE reputation >= 1
+            GROUP BY user_id, month
         )
+        """
+        final_select = """
+        SELECT
+            b.user_id,
+            b.month,
+            b.mean_toxicity,
+            b.mean_vader,
+            b.mean_textblob,
+            b.mean_subjectivity,
+            b.activity_count,
+            r.mean_reputation AS mean_reputation,
+            COALESCE(r.active_days, 0) AS active_days
+        FROM behavioral_monthly b
+        LEFT JOIN reputation_monthly r ON b.user_id = r.user_id AND b.month = r.month
+        """
+    else:
+        reputation_cte = ""
+        final_select = """
         SELECT
             user_id,
             month,
-            AVG(reputation) AS mean_reputation,
-            COUNT(*) AS active_days
-        FROM with_month
-        GROUP BY user_id, month
+            mean_toxicity,
+            mean_vader,
+            mean_textblob,
+            mean_subjectivity,
+            activity_count,
+            CAST(NULL AS DOUBLE) AS mean_reputation,
+            0 AS active_days
+        FROM behavioral_monthly
+        """
+
+    # 3. Construct Full Query
+    full_query = f"""
+        WITH {behavioral_cte}
+        {reputation_cte}
+        {final_select}
     """
 
+    logging.info("Executing DuckDB pipeline and writing directly to Parquet...")
+    
     try:
-        df = conn.execute(query).df()
-        df["month"] = df["month"].astype(str)
-        df["user_id"] = df["user_id"].astype(str)
-
-        logging.info(
-            f"Aggregated reputation to {len(df):,} user-month records "
-            f"({df['user_id'].nunique():,} users)"
-        )
-
-        return df
+        conn.execute(f"""
+            COPY ({full_query}) 
+            TO '{output_file.as_posix()}' 
+            (FORMAT PARQUET, COMPRESSION 'SNAPPY')
+        """)
+        logging.info(f"Successfully wrote: {output_file}")
+        
+        # Verify output
+        count = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{output_file.as_posix()}')").fetchone()[0]
+        logging.info(f"Total rows written: {count:,}")
+        
     except Exception as e:
-        logging.error(f"Failed to aggregate reputation: {e}")
-        return pd.DataFrame(columns=["user_id", "month", "mean_reputation", "active_days"])
+        logging.error(f"DuckDB pipeline failed: {e}")
+        if output_file.exists():
+            output_file.unlink()
+        raise
     finally:
         conn.close()
-
-
-def merge_metrics_chunked(behavioral: pd.DataFrame, reputation: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """Merge behavioral and reputation."""
-    if reputation is None or reputation.empty:
-        logging.warning("No reputation data to merge")
-        result = behavioral.copy()
-        result["mean_reputation"] = float("nan")
-        result["active_days"] = 0
-        return result
-
-    result = behavioral.merge(reputation, on=["user_id", "month"], how="left")
-    result["mean_reputation"] = result["mean_reputation"].fillna(float("nan"))
-    result["active_days"] = result["active_days"].fillna(0).astype(int)
-
-    logging.info(
-        f"Merged metrics: {len(result):,} user-month records, "
-        f"{result['mean_reputation'].notna().sum():,} with reputation"
-    )
-
-    return result
 
 
 def main() -> None:
@@ -211,22 +219,15 @@ def main() -> None:
     platform = args.platform.lower()
     community = args.community.lower()
 
-    logging.info(f"Processing {platform}/{community} (LOW MEMORY MODE)")
+    logging.info(f"Processing {platform}/{community} (PURE DUCKDB MODE)")
 
     pq_path = parquet_path(args.data_dir, platform, community)
-    behavioral = build_user_month_metrics(pq_path)
-
+    
     if args.skip_reputation:
         logging.info("Skipping reputation (--skip-reputation flag)")
-        rep_monthly = None
+        rep_file = None
     else:
         rep_file = find_reputation_file(args.reputation_dir, platform, community)
-        if rep_file:
-            rep_monthly = aggregate_reputation_with_duckdb(rep_file)
-        else:
-            rep_monthly = None
-
-    user_month_metrics = merge_metrics_chunked(behavioral, rep_monthly)
 
     if args.output_dir:
         output_dir = args.output_dir
@@ -236,16 +237,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{platform}_{community}_user_month_metrics.parquet"
 
-    user_month_metrics.to_parquet(output_file, index=False)
-    logging.info(f"Wrote {output_file} ({len(user_month_metrics):,} rows)")
-
-    logging.info("=" * 60)
-    logging.info("Summary Statistics:")
-    logging.info(f"  Total user-months: {len(user_month_metrics):,}")
-    logging.info(f"  Unique users: {user_month_metrics['user_id'].nunique():,}")
-    logging.info(f"  Months covered: {user_month_metrics['month'].nunique()}")
-    logging.info(f"  With reputation: {user_month_metrics['mean_reputation'].notna().sum():,}")
-    logging.info("=" * 60)
+    run_duckdb_pipeline(pq_path, rep_file, output_file, args.memory_limit, args.temp_dir)
 
 
 if __name__ == "__main__":

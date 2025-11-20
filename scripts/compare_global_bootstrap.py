@@ -23,12 +23,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 ACTIVITY_BINS: Sequence[Tuple[int, Optional[int]]] = ((1, 1), (2, 2), (3, 5), (6, 10), (11, 20), (21, None))
 METRICS = ["toxicity_mean", "vader_mean", "textblob_mean", "subjectivity_mean", "reputation_mean"]
+# Map output metric names to source columns in the user-month parquet.
+METRIC_COLUMN_MAP = {
+    "toxicity_mean": "mean_toxicity",
+    "vader_mean": "mean_vader",
+    "textblob_mean": "mean_textblob",
+    "subjectivity_mean": "mean_subjectivity",
+    "reputation_mean": "mean_reputation",
+}
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--community", required=True)
     parser.add_argument("--basic-dir", type=Path, default=REPO_ROOT / "results" / "basic")
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--reddit-metrics", type=Path, default=None, help="Explicit path to Reddit metrics parquet")
+    parser.add_argument("--voat-metrics", type=Path, default=None, help="Explicit path to Voat metrics parquet")
     parser.add_argument("--bootstrap-iterations", type=int, default=40)
     parser.add_argument("--seed", type=int, default=2025)
     parser.add_argument("--log-level", default="INFO")
@@ -42,11 +52,18 @@ def activity_bin(count: float) -> str:
             return f"{low}" if low == high else f"{low}-{high}"
     return "0"
 
-def load_user_month_metrics(basic_dir, platform, community):
-    path = basic_dir / platform / "results" / f"{platform}_{community}_user_month_metrics.parquet"
+def load_user_month_metrics(basic_dir, platform, community, explicit_path=None):
+    if explicit_path:
+        path = explicit_path
+    else:
+        path = basic_dir / platform / "results" / f"{platform}_{community}_user_month_metrics.parquet"
+    
     if not path.exists():
         raise FileNotFoundError(f"User-month metrics not found: {path}")
     df = pd.read_parquet(path)
+    # Older alt-pipeline parquet may omit reputation; fill with NaN so downstream aggregations don't fail.
+    if "mean_reputation" not in df.columns:
+        df["mean_reputation"] = np.nan
     df["activity_bin"] = df["activity_count"].apply(activity_bin)
     df["platform"] = platform
     df["community"] = community.lower()
@@ -54,14 +71,19 @@ def load_user_month_metrics(basic_dir, platform, community):
     return df
 
 def aggregate_monthly_metrics(user_month_df):
-    agg = user_month_df.groupby(["platform", "community", "month"], as_index=False).agg(
-        active_users=("user_id", "nunique"),
-        toxicity_mean=("mean_toxicity", "mean"), toxicity_std=("mean_toxicity", "std"),
-        vader_mean=("mean_vader", "mean"), vader_std=("mean_vader", "std"),
-        textblob_mean=("mean_textblob", "mean"), textblob_std=("mean_textblob", "std"),
-        subjectivity_mean=("mean_subjectivity", "mean"), subjectivity_std=("mean_subjectivity", "std"),
-        reputation_mean=("mean_reputation", "mean"), reputation_std=("mean_reputation", "std"),
-        total_activity=("activity_count", "sum"))
+    agg_dict = {
+        "active_users": ("user_id", "nunique"),
+        "toxicity_mean": ("mean_toxicity", "mean"), "toxicity_std": ("mean_toxicity", "std"),
+        "vader_mean": ("mean_vader", "mean"), "vader_std": ("mean_vader", "std"),
+        "textblob_mean": ("mean_textblob", "mean"), "textblob_std": ("mean_textblob", "std"),
+        "subjectivity_mean": ("mean_subjectivity", "mean"), "subjectivity_std": ("mean_subjectivity", "std"),
+        "total_activity": ("activity_count", "sum"),
+    }
+    if "mean_reputation" in user_month_df.columns:
+        agg_dict["reputation_mean"] = ("mean_reputation", "mean")
+        agg_dict["reputation_std"] = ("mean_reputation", "std")
+
+    agg = user_month_df.groupby(["platform", "community", "month"], as_index=False).agg(**agg_dict)
     agg["month_dt"] = pd.to_datetime(agg["month"] + "-01")
     return agg.sort_values("month_dt").drop(columns=["month_dt"])
 
@@ -126,8 +148,9 @@ def bootstrap_reddit_at_voat_scale(voat_user_month, reddit_user_month, iteration
             if sample_size == 0: continue
 
             for metric in METRICS:
-                if metric not in sample.columns: continue
-                values = pd.to_numeric(sample[metric], errors="coerce")
+                col = METRIC_COLUMN_MAP.get(metric, metric)
+                if col not in sample.columns: continue
+                values = pd.to_numeric(sample[col], errors="coerce")
                 mean_value = values.mean() if not values.empty else math.nan
                 results.append({"platform": "reddit_voat_scale", "community": community,
                                "month": month, "metric": metric, "iteration": iteration,
@@ -163,8 +186,8 @@ def main():
 
     logging.info(f"Processing community: {community}")
 
-    reddit_user = load_user_month_metrics(args.basic_dir, "reddit", community)
-    voat_user = load_user_month_metrics(args.basic_dir, "voat", community)
+    reddit_user = load_user_month_metrics(args.basic_dir, "reddit", community, args.reddit_metrics)
+    voat_user = load_user_month_metrics(args.basic_dir, "voat", community, args.voat_metrics)
 
     reddit_monthly = aggregate_monthly_metrics(reddit_user)
     voat_monthly = aggregate_monthly_metrics(voat_user)

@@ -16,7 +16,7 @@ import pandas as pd
 
 # Add scripts dir to path to import utils
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from scripts.migration_utils import EVENTS
+from scripts.migration_utils import EVENTS, newcomer_label_for_month
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -32,26 +32,43 @@ def main():
     logging.basicConfig(level=getattr(logging, args.log_level.upper()))
     
     # Load monthly newcomer analysis (intermediate result)
-    # Or re-aggregate from user metrics? Re-aggregating is better for cumulative means.
-    
-    metrics_path = args.basic_dir / "voat" / "results" / f"voat_{args.community}_user_month_metrics.parquet"
-    labels_path = args.basic_dir / "voat" / "results" / f"voat_{args.community}_newcomer_labels.csv"
-    
-    if not labels_path.exists() and args.output_dir:
-         labels_path = args.output_dir / f"voat_{args.community}_newcomer_labels.csv"
+    filename = f"voat_{args.community}_user_month_metrics.parquet"
+    metrics_candidates = [
+        args.basic_dir / args.community / "voat" / filename,
+        args.basic_dir / args.community / "voat" / "results" / filename,
+        args.basic_dir / "voat" / "results" / filename,
+        args.basic_dir / "voat" / filename,
+        Path("results/basic") / "voat" / "results" / filename,
+    ]
+    metrics_path = next((p for p in metrics_candidates if p.exists()), None)
 
-    if not metrics_path.exists() or not labels_path.exists():
-        logging.error("Missing input files")
+    labels_candidates = [
+        args.basic_dir / args.community / "voat" / f"voat_{args.community}_newcomer_labels.csv",
+        args.basic_dir / args.community / "voat" / "results" / f"voat_{args.community}_newcomer_labels.csv",
+        args.basic_dir / "voat" / "results" / f"voat_{args.community}_newcomer_labels.csv",
+        args.basic_dir / "voat" / f"voat_{args.community}_newcomer_labels.csv",
+    ]
+    if args.output_dir:
+         labels_candidates.append(args.output_dir / f"voat_{args.community}_newcomer_labels.csv")
+
+    labels_path = next((p for p in labels_candidates if p.exists()), None)
+
+    if metrics_path is None or labels_path is None:
+        logging.error(f"Missing input files. Tried metrics: {metrics_candidates}, labels: {labels_candidates}")
         return
 
     metrics = pd.read_parquet(metrics_path)
+    if "mean_reputation" not in metrics.columns:
+        metrics["mean_reputation"] = float("nan")
     labels_df = pd.read_csv(labels_path)
     
     metrics["user_id"] = metrics["user_id"].astype(str)
     labels_df["user_id"] = labels_df["user_id"].astype(str)
     
-    merged = metrics.merge(labels_df, on="user_id", how="inner")
+    merged = metrics.merge(labels_df, on="user_id", how="inner", suffixes=("", "_label"))
     merged["month_dt"] = pd.to_datetime(merged["month"] + "-01")
+    merged["first_seen_dt"] = pd.to_datetime(merged.get("first_month", merged.get("month", merged["month"])))
+    merged["label"] = merged.apply(lambda row: newcomer_label_for_month(row["first_seen_dt"], row["month_dt"]), axis=1)
     
     # Define Periods
     periods = [
@@ -68,15 +85,16 @@ def main():
         if subset.empty:
             continue
             
-        # Group by Label
-        agg = subset.groupby("label").agg({
+        # Group by Label; only aggregate columns present
+        agg_fields = {
             "mean_toxicity": "mean",
             "mean_vader": "mean",
             "mean_textblob": "mean",
             "mean_subjectivity": "mean",
             "mean_reputation": "mean",
             "user_id": "nunique" # Unique users active in period
-        })
+        }
+        agg = subset.groupby("label").agg({k: v for k, v in agg_fields.items() if k in subset.columns})
         
         for label in ["newcomer", "existing"]:
             if label in agg.index:
@@ -102,4 +120,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

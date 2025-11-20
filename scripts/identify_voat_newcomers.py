@@ -20,6 +20,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--community", required=True)
     parser.add_argument("--basic-dir", type=Path, required=True)
+    parser.add_argument("--voat-metrics", type=Path, default=None, help="Explicit path to Voat metrics parquet")
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
@@ -33,12 +34,22 @@ def main():
     # The pipeline script passes basic-dir as 'results/alternative' but the file is in 'results/alternative/voat/results'
     # We need to handle the path correctly.
     
-    # Construct path: basic_dir / platform / results / ...
-    # Note: run_alternative_pipeline passes --basic-dir "results/alternative"
-    path = args.basic_dir / "voat" / "results" / f"voat_{args.community}_user_month_metrics.parquet"
-    
-    if not path.exists():
-        logging.error(f"Voat metrics not found: {path}")
+    # Construct path: try explicit, then alt layout, then canonical basic layout.
+    if args.voat_metrics:
+        candidates = [args.voat_metrics]
+    else:
+        filename = f"voat_{args.community}_user_month_metrics.parquet"
+        candidates = [
+            args.basic_dir / args.community / "voat" / filename,              # alternative pipeline layout
+            args.basic_dir / args.community / "voat" / "results" / filename,  # alt with results/
+            args.basic_dir / "voat" / "results" / filename,  # canonical basic/alt with results
+            args.basic_dir / "voat" / filename,              # flattened alt layout
+            Path("results/basic") / "voat" / "results" / filename,  # fallback to basic
+        ]
+
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        logging.error(f"Voat metrics not found in: {candidates}")
         return
 
     logging.info(f"Loading {path}...")
@@ -47,15 +58,25 @@ def main():
     # Find first month per user
     df["month_dt"] = pd.to_datetime(df["month"] + "-01")
     first_seen = df.groupby("user_id")["month_dt"].min().reset_index()
+    first_seen["first_month"] = first_seen["month_dt"].dt.strftime("%Y-%m")
     
-    # Label based on Event A
-    event_a = EVENTS["A"] # June 2015
-    
-    # Newcomer = First seen >= Event A
-    # Existing = First seen < Event A
-    first_seen["label"] = first_seen["month_dt"].apply(
-        lambda x: "newcomer" if x >= event_a else "existing"
-    )
+    # Label based on periods relative to Events A/B/C (static; dynamic labels computed downstream)
+    event_a = EVENTS["A"]
+    event_b = EVENTS["B"]
+    event_c = EVENTS["C"]
+
+    def period_group(ts):
+        if ts < event_a:
+            return "preA"
+        elif ts < event_b:
+            return "A-B"
+        elif ts < event_c:
+            return "B-C"
+        else:
+            return "C-End"
+
+    first_seen["label"] = first_seen["month_dt"].apply(lambda ts: "existing" if ts < event_a else "newcomer")
+    first_seen["period_group"] = first_seen["month_dt"].apply(period_group)
     
     counts = first_seen["label"].value_counts()
     logging.info(f"User labels:\n{counts}")
@@ -64,9 +85,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     out_path = output_dir / f"voat_{args.community}_newcomer_labels.csv"
-    first_seen[["user_id", "label"]].to_csv(out_path, index=False)
+    first_seen[["user_id", "label", "period_group", "first_month"]].to_csv(out_path, index=False)
     logging.info(f"Wrote labels to {out_path}")
 
 if __name__ == "__main__":
     main()
-
