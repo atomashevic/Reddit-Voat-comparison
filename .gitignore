@@ -20,19 +20,13 @@ build/
 # Large data directories - exclude by default
 data/
 networks/
-results/
 
-# But include PNG figures from results
-!results/**/*.png
-!results/networks/compare/figures/*.png
+# Ignore all of results by default
+results/**
 
-# Exclude large data files in results (but allow PNGs via above exceptions)
-results/**/*.parquet
-results/**/*.csv
-results/**/*.h5
-results/**/*.hdf5
-results/**/*.hdf
-results/**/*.log
+# Allow Figures under alternative only
+!results/alternative/**/
+!results/alternative/**/*.png
 
 # LaTeX build artifacts
 *.aux
