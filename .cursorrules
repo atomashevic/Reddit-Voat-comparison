@@ -1,0 +1,364 @@
+# Cursor Rules for Reddit-Voat Research Project
+
+## Project Overview
+This is a research project analyzing Reddit communities before/after bans and migrations to Voat, comparing platforms over time and quantifying similarities/differences by community type.
+
+**Controversial communities**: CringeAnarchy, fatpeoplehate, greatawakening, MensRights, milliondollarextreme, KotakuInAction
+**Normal communities**: funny, gaming, gifs, pics, technology, videos
+
+## ⚠️ CRITICAL WARNINGS: Remote Machine & Large Files
+
+**This repository runs on a remote machine with limited resources. Exercise extreme caution:**
+
+### File Size Warnings
+- **Reddit Parquet files are HUGE** (often 5-50+ GB each)
+- **NEVER** load entire Parquet files into memory at once
+- **ALWAYS** use column selection (`columns=[...]`) when reading Parquet files
+- **NEVER** use `pd.read_parquet()` without column selection on large files
+- Check file sizes before processing: `du -h data/*.parquet`
+- Process files sequentially, one at a time
+- Consider using DuckDB for aggregations instead of loading into pandas
+
+### Memory Leak Prevention
+- **ALWAYS** delete large DataFrames explicitly: `del df; gc.collect()`
+- **NEVER** accumulate DataFrames in lists without periodic cleanup
+- **ALWAYS** close file handles explicitly (use context managers: `with open(...)`)
+- **NEVER** keep multiple large files in memory simultaneously
+- Monitor memory usage continuously: use `get_memory_status()` before/after operations
+- Set memory warning thresholds (default 90%) and abort if exceeded
+- Use generators/iterators instead of loading all data at once
+- Clear intermediate variables: `del intermediate_var` after use
+
+### I/O & Remote Machine Considerations
+- **Network latency**: Remote machine means slower I/O operations
+- **Disk I/O**: Can be slow; minimize read/write operations
+- **Connection stability**: Use tmux for long-running tasks (can survive disconnects)
+- **Resource limits**: Check available memory/disk before starting: `free -h`, `df -h`
+- **Avoid**: Multiple concurrent file operations
+- **Prefer**: Sequential processing with progress logging
+- **Test first**: Run on small subsets before processing full datasets
+- **Check disk space**: Ensure sufficient space before writing large outputs
+
+### Best Practices for Large Files
+1. **Always** read with column selection: `pq.read_table(path, columns=[...])`
+2. **Always** process one file at a time
+3. **Always** delete DataFrames after use: `del df; gc.collect()`
+4. **Always** use DuckDB for aggregations on large files
+5. **Always** check memory before/after operations
+6. **Never** concatenate large DataFrames without chunking
+7. **Never** keep more than one large DataFrame in memory
+8. **Always** use context managers for file operations
+
+## Environment Setup
+- **Python version**: Python 3.10+
+- **Virtual environment**: Always activate pyenv virtual environment first: `pyenv activate python13`
+- **Key dependencies**: pandas, numpy, networkx, h5py, mrjob, pyarrow, duckdb
+- **Thread management**: Set environment variables at script start to prevent oversubscription:
+  ```python
+  os.environ.setdefault("OMP_NUM_THREADS", "1")
+  os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+  os.environ.setdefault("MKL_NUM_THREADS", "1")
+  os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+  os.environ.setdefault("ARROW_NUM_THREADS", "1")
+  ```
+
+## Project Structure
+- `scripts/`: Analysis code and CLI utilities
+  - `core_periphery/` and `core_periphery_sbm/`: core-periphery inference (NetworkX, NumPy, h5py, MRJob helpers)
+  - `dynamical_reputation/`: reputation metrics and conversion helpers
+  - `network_properties/`: network metric computations
+  - `toxicity/`: toxicity analysis scripts
+- `results/`: Analysis outputs (do NOT commit most results; see .gitignore)
+  - Categories: `core-periphery/`, `networks/`, `reputation/`, `toxicity/`, `sentiment/`, `basic/`
+  - Within each category: `voat/`, `reddit/`, `compare/` subdirectories
+  - Each subdirectory contains: `results/` (CSV/Parquet) and `figures/` (plots)
+  - Example: `results/basic/voat/results/*.csv`, `results/basic/voat/figures/*.png`
+- `data/`: Large Parquet datasets (read-only; do not commit new data files)
+- `notes/`: Papers, `references.bib`, research notes, data dictionaries
+- `networks/`: Network files (excluded from git)
+
+## Coding Standards
+
+### Style
+- **Indentation**: 4 spaces (no tabs)
+- **Line length**: ~100 columns
+- **Naming**: 
+  - `snake_case` for functions, variables, and files
+  - `CapWords` for classes
+- **Imports**: Group standard library, third-party, then local imports
+- **Functions**: Prefer small, pure functions; avoid hardcoded paths
+
+### Script Structure
+- Use `argparse` for CLI arguments
+- Support `--output-dir` parameter (default: `results/<category>/<community>` or `results/global`)
+- Include logging with appropriate levels (INFO, WARNING, ERROR)
+- Handle memory efficiently for large datasets (process sequentially, use DuckDB for aggregations)
+- Use `pyarrow.parquet` for reading Parquet files with column selection
+- Use DuckDB for efficient SQL queries on Parquet files
+
+### Output Naming Conventions
+- **Prefixes**: 
+  - `voat_` for Voat-specific outputs
+  - `reddit_` for Reddit-specific outputs
+  - `compare_` for cross-platform comparisons
+- **Examples**: 
+  - `results/reputation/fatpeoplehate/voat_daily_reputation.csv`
+  - `results/basic/compare/results/group_month_validity.csv`
+
+### Data Processing Patterns
+- **Parquet reading**: 
+  - **MANDATORY**: Always use column selection to minimize memory usage
+  - **NEVER** read entire files: `pq.read_table(path, columns=[...])` not `pd.read_parquet(path)`
+  - Use `use_threads=False` to prevent thread oversubscription
+  - Check file size before reading: warn if > 10GB
+- **Date handling**: Use UTC timezone, convert epoch timestamps (handle seconds vs milliseconds)
+- **Aggregations**: 
+  - **ALWAYS** prefer DuckDB for large Parquet aggregations (avoids loading into memory)
+  - Use SQL queries directly on Parquet files when possible
+  - Only use pandas for small aggregations or final result assembly
+- **Memory management**: 
+  - **CRITICAL**: Process files sequentially, one at a time
+  - **ALWAYS** use `gc.collect()` after processing each large file
+  - **ALWAYS** delete large DataFrames: `del df` before `gc.collect()`
+  - Monitor memory usage before/after each operation
+  - Warn if memory usage exceeds 85%, abort if exceeds 95%
+  - Clear intermediate variables explicitly: `del intermediate_var`
+  - **NEVER** accumulate large DataFrames in lists without periodic cleanup
+  - Use chunking for large operations (process in batches)
+  - Close file handles immediately after use (use context managers)
+
+### Error Handling
+- Validate CSV/JSON inputs and fail fast with clear errors
+- Handle missing columns gracefully (log warnings, return empty DataFrames)
+- Use try/except blocks for optional dependencies (e.g., matplotlib, psutil)
+
+## Key Event Dates
+Reference `scripts/migration_utils.py` for canonical event dates:
+- **A**: FPH Ban (2015-06-10)
+- **B**: GreatAwakening Ban (2018-09-12)
+- **C**: The_Donald Ban (2020-06-29)
+- **D**: Pizzagate Ban (2016-11-23)
+
+## Common Data Schemas
+- **Monthly aggregates**: Include `month` (YYYY-MM), `platform`, `community`, and various metrics
+- **Daily aggregates**: Include `date` (YYYY-MM-DD), `platform`, `community`
+- **Group-month data**: Include `platform`, `community`, `month`, `group` (core/periphery/newcomer/existing)
+- See `notes/migration_data_dictionary.md` for detailed schemas
+
+## Long-Running Tasks & Remote Machine Considerations
+- **CRITICAL**: This repository runs on a remote machine - connection can drop
+- **ALWAYS** use tmux for long-running tasks (survives disconnections):
+  - Create/attach: `tmux new -s voat` or `tmux attach -t voat`
+  - Inside tmux: `pyenv activate python13`, then proceed with commands
+  - Detach: `Ctrl-b d` (keeps process running)
+  - List sessions: `tmux ls`
+  - Reattach after disconnect: `tmux attach -t voat`
+- **Before starting long tasks**:
+  - Check available memory: `free -h`
+  - Check disk space: `df -h`
+  - Check if other processes are running: `ps aux | grep python`
+  - Estimate runtime and log start time
+- **During execution**:
+  - Log progress frequently (every file, every N minutes)
+  - Log memory usage periodically
+  - Save intermediate results to avoid re-computation
+  - Use checkpoints for very long operations
+- **I/O optimization**:
+  - Minimize read/write operations (batch when possible)
+  - Use compression for outputs (Parquet is already compressed)
+  - Avoid unnecessary file system operations
+  - Prefer single large writes over many small writes
+
+## Testing
+- Use `pytest` under `tests/` directory (`tests/test_<module>.py`)
+- Unit-test parsers/helpers
+- Add MRJob smoke tests on tiny samples
+- Fix random seeds for reproducibility
+- Avoid loading full Parquet files in tests (use sample data)
+
+## Work Tracking
+- Track work in Beads (not Markdown)
+- Use `bd create "<title>"` to file issues
+- Use `bd dep add` to chain dependencies
+- Use `bd ready` to list unblocked work items
+- Use `bd list --status open` to show everything outstanding
+- Close items with `bd close <issue>` once code lands
+
+## Git Guidelines
+- **Commits**: Concise, present tense (Conventional Commits preferred)
+- **PRs**: Include purpose + linked issues, minimal repro commands, dependency/perf notes
+- **Do NOT commit**: 
+  - Large datasets (use `.gitignore`/Git LFS)
+  - Most results (exceptions: `results/alternative/**/*.png`)
+  - `data/` directory contents
+  - `networks/` directory contents
+  - `backups/` directory
+  - `tmp/` directory
+
+## Common Script Patterns
+
+### Parquet File Processing
+```python
+import pyarrow.parquet as pq
+import gc
+
+# CRITICAL: Always check file size first
+file_size_gb = os.path.getsize(file_path) / (1024**3)
+if file_size_gb > 10:
+    logging.warning(f"Large file detected: {file_size_gb:.1f} GB - {file_path}")
+
+# CRITICAL: Always use column selection
+table = pq.read_table(
+    file_path,
+    columns=[...],  # MANDATORY: Select only needed columns
+    use_threads=False,  # Prevent thread oversubscription
+)
+df = table.to_pandas()
+
+# After processing, ALWAYS clean up:
+del table
+gc.collect()
+```
+
+### DuckDB Queries
+```python
+import duckdb
+conn = duckdb.connect()
+conn.execute("""
+    SELECT month, platform, community, COUNT(*) as count
+    FROM 'data/file.parquet'
+    WHERE platform = 'voat'
+    GROUP BY month, platform, community
+""")
+result = conn.fetchdf()
+```
+
+### Memory Monitoring
+```python
+def get_memory_status() -> dict:
+    # Try psutil, fallback to /proc/meminfo
+    # Return dict with total, available, used, percent
+    pass
+
+# CRITICAL: Check memory before operations
+ms = get_memory_status()
+if ms.get("percent", 0.0) > 85:
+    logging.warning(f"High memory usage: {ms.get('percent', 0.0):.1f}%")
+if ms.get("percent", 0.0) > 95:
+    logging.error("Memory usage too high, aborting")
+    sys.exit(1)
+```
+
+### File Size Checking
+```python
+import os
+
+def check_file_size(file_path: str, warn_gb: float = 10.0) -> float:
+    """Check file size and warn if large. Returns size in GB."""
+    size_bytes = os.path.getsize(file_path)
+    size_gb = size_bytes / (1024**3)
+    if size_gb > warn_gb:
+        logging.warning(f"Large file: {size_gb:.1f} GB - {file_path}")
+    return size_gb
+
+# Always check before reading
+file_size = check_file_size(file_path)
+```
+
+### Disk Space Checking
+```python
+import shutil
+
+def check_disk_space(path: str, required_gb: float = 1.0) -> bool:
+    """Check available disk space. Returns True if sufficient space."""
+    stat = shutil.disk_usage(path)
+    available_gb = stat.free / (1024**3)
+    if available_gb < required_gb:
+        logging.error(f"Insufficient disk space: {available_gb:.1f} GB available, {required_gb:.1f} GB required")
+        return False
+    return True
+
+# Check before writing large outputs
+if not check_disk_space(output_dir, required_gb=5.0):
+    sys.exit(1)
+```
+
+### Date Conversion
+```python
+def _safe_to_datetime_utc(series: pd.Series) -> pd.Series:
+    # Handle seconds vs milliseconds epoch timestamps
+    # Convert to UTC datetime, floor to day
+    pass
+```
+
+## When Writing New Scripts
+1. **CRITICAL**: Always set thread environment variables at the top
+2. **CRITICAL**: Check available memory/disk space before starting
+3. Use argparse for CLI arguments
+4. Include `--output-dir` parameter
+5. Set up logging with appropriate format (include memory status in logs)
+6. **CRITICAL**: Process files sequentially, one at a time
+7. **CRITICAL**: Always use column selection when reading Parquet files
+8. **CRITICAL**: Delete DataFrames and run gc.collect() after each file
+9. **CRITICAL**: Monitor memory usage before/after each operation
+10. Follow output naming conventions (voat_/reddit_/compare_ prefixes)
+11. Write outputs to appropriate `results/<category>/<platform>/results/` or `results/<category>/<platform>/figures/`
+12. Handle missing columns/data gracefully
+13. Include memory monitoring for large operations (warn at 85%, abort at 95%)
+14. **CRITICAL**: Use DuckDB for aggregations on large Parquet files (never load full files)
+15. **CRITICAL**: Use context managers for all file operations
+16. **CRITICAL**: Test on small file subsets before processing full datasets
+17. **CRITICAL**: Log file sizes and memory usage at each step
+
+## Platform-Specific Notes
+- **Reddit data**: Uses standard Reddit interaction types (post, comment, submission, etc.)
+- **Voat data**: Similar structure but may have different interaction type names
+- **Platform column**: Always lowercase ('reddit' or 'voat')
+- **Community names**: Preserve original casing in data, lowercase for comparisons
+
+## Analysis Categories
+When creating new analysis scripts, categorize them appropriately:
+- **Basic stats**: `results/basic/`
+- **Core-periphery**: `results/core-periphery/`
+- **Network metrics**: `results/networks/`
+- **Reputation**: `results/reputation/`
+- **Toxicity**: `results/toxicity/`
+- **Sentiment**: `results/sentiment/`
+- **Cross-platform comparisons**: `results/<category>/compare/`
+
+## ⚠️ Quick Reference: Common Pitfalls to AVOID
+
+### ❌ NEVER DO THESE:
+1. **NEVER** `pd.read_parquet(path)` without column selection on large files
+2. **NEVER** load multiple large Parquet files simultaneously
+3. **NEVER** accumulate large DataFrames in lists without cleanup
+4. **NEVER** forget to delete DataFrames: `del df; gc.collect()`
+5. **NEVER** run long tasks without tmux (connection can drop)
+6. **NEVER** skip memory checks before operations
+7. **NEVER** write large outputs without checking disk space
+8. **NEVER** use pandas for aggregations on huge files (use DuckDB)
+9. **NEVER** concatenate large DataFrames without chunking
+10. **NEVER** keep file handles open unnecessarily
+
+### ✅ ALWAYS DO THESE:
+1. **ALWAYS** use `pq.read_table(path, columns=[...])` with column selection
+2. **ALWAYS** process files sequentially, one at a time
+3. **ALWAYS** delete DataFrames after use: `del df; gc.collect()`
+4. **ALWAYS** use tmux for long-running tasks
+5. **ALWAYS** check memory before/after operations
+6. **ALWAYS** check disk space before writing outputs
+7. **ALWAYS** use DuckDB for aggregations on large Parquet files
+8. **ALWAYS** use context managers for file operations
+9. **ALWAYS** log file sizes and memory usage
+10. **ALWAYS** test on small subsets first
+
+### 🚨 Red Flags in Code:
+- `pd.read_parquet(path)` without `columns=` parameter
+- Multiple `pd.read_parquet()` calls without cleanup between
+- DataFrames accumulating in lists: `results.append(df)`
+- Missing `del df` or `gc.collect()` after large operations
+- No memory checking before operations
+- No file size checking before reading
+- Missing `use_threads=False` in Parquet reads
+- Missing context managers for file operations
+

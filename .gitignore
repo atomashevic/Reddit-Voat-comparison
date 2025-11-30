@@ -4,6 +4,8 @@ tmp/
 notes/
 .claude/
 backups/
+backup/
+
 # Python
 .venv/
 __pycache__/
@@ -17,16 +19,14 @@ __pycache__/
 dist/
 build/
 
-# Large data directories - exclude by default
+# Large data directories
 data/
 networks/
 
-# Ignore all of results by default
-results/**
-
-# Allow Figures under alternative only
-!results/alternative/**/
-!results/alternative/**/*.png
+# Results and Figures
+results/
+figures/
+!figures/**/*.png
 
 # LaTeX build artifacts
 *.aux
@@ -40,7 +40,7 @@ results/**
 *.pptx
 *.ppt
 
-# Documentation files (exclude specific ones, but allow tracked ones)
+# Documentation files
 CLAUDE.md
 ALTERNATIVE_PIPELINE_README.md
 reddit-voat-behavior-metrics.md

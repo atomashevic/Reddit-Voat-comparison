@@ -1,15 +1,14 @@
 #!/bin/bash
 #
-# Run complete alternative (non-core-periphery) analysis pipeline for a single community.
+# Minimal alternative pipeline: build metrics, bootstrap bands, newcomer partition,
+# merge monthly metrics, and render a single 8-panel overview figure.
+# All outputs under: results/alternative/{community}/
 #
 # Usage:
 #   bash scripts/run_alternative_pipeline.sh funny
-#   bash scripts/run_alternative_pipeline.sh funny --skip-phase-1
-#
-# All outputs centralized under: results/alternative/{community}/
 #
 
-set -e  # Exit on error
+set -euo pipefail  # Exit on error and unset vars
 
 # ============================================================================
 # Configuration
@@ -19,46 +18,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-COMMUNITY="$1"
-SKIP_PHASE_1=false
-SKIP_PHASE_2=false
-SKIP_PHASE_3=false
-SKIP_PHASE_4=false
-
-# Parse arguments
+COMMUNITY="${1:-}"
 if [[ -z "$COMMUNITY" ]]; then
     echo "❌ Error: Community name required"
-    echo "Usage: bash scripts/run_alternative_pipeline.sh <community> [--skip-phase-N]"
-    echo "Example: bash scripts/run_alternative_pipeline.sh funny"
+    echo "Usage: bash scripts/run_alternative_pipeline.sh <community>"
     exit 1
 fi
 
-shift
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --skip-phase-1) SKIP_PHASE_1=true; shift ;;
-        --skip-phase-2) SKIP_PHASE_2=true; shift ;;
-        --skip-phase-3) SKIP_PHASE_3=true; shift ;;
-        --skip-phase-4) SKIP_PHASE_4=true; shift ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
-    esac
-done
-
 # Unified output directory
-ALT_ROOT="results/alternative/${COMMUNITY}"
-ALT_REDDIT="${ALT_ROOT}/reddit"
-ALT_VOAT="${ALT_ROOT}/voat"
-ALT_COMPARE="${ALT_ROOT}/compare"
-ALT_FIGURES="${ALT_ROOT}/figures"
-ALT_NETWORKS_REDDIT="${ALT_ROOT}/networks/reddit"
-ALT_NETWORKS_VOAT="${ALT_ROOT}/networks/voat"
+RESULTS_ROOT="results"
+FIGURES_ROOT="figures"
+
+RES_REDDIT="${RESULTS_ROOT}/reddit/${COMMUNITY}"
+RES_VOAT="${RESULTS_ROOT}/voat/${COMMUNITY}"
+RES_COMPARE="${RESULTS_ROOT}/compare/${COMMUNITY}"
+FIG_COMPARE="${FIGURES_ROOT}/compare/${COMMUNITY}"
+
+# Ensure directories exist
+mkdir -p "$RES_REDDIT" "$RES_VOAT" "$RES_COMPARE" "$FIG_COMPARE"
 
 # Legacy results directory (for reuse from previous runs)
-BASIC_ROOT="results/basic/${COMMUNITY}"
+BASIC_ROOT="backup/results/basic/${COMMUNITY}"
 BASIC_REDDIT="${BASIC_ROOT}/reddit/results"
 BASIC_VOAT="${BASIC_ROOT}/voat/results"
 
-# Bootstrap parameters
+# Bootstrap parameters (only for toxicity/sentiment bands)
 BOOTSTRAP_ITERATIONS=40
 RANDOM_SEED=2025
 
@@ -178,395 +162,178 @@ print_success "Voat parquet: $VOAT_PARQUET ($(du -h "$VOAT_PARQUET" | cut -f1))"
 
 # Create output directories
 print_step "Creating output directories..."
-mkdir -p "$ALT_REDDIT" "$ALT_VOAT" "$ALT_COMPARE" "$ALT_FIGURES"
-mkdir -p "$ALT_NETWORKS_REDDIT" "$ALT_NETWORKS_VOAT"
-print_success "Output root: $ALT_ROOT"
+# Already created above
+print_success "Output roots: $RES_REDDIT, $RES_VOAT, $RES_COMPARE"
 
 # ============================================================================
-# PHASE 1: Build Metrics
+# STEP 1: Build user-month metrics (with reputation) and monthly aggregates
 # ============================================================================
 
-if [[ "$SKIP_PHASE_1" == true ]]; then
-    print_warning "Skipping Phase 1 (as requested)"
+print_header "STEP 1: Build metrics and aggregates"
+
+# Reddit user-month metrics
+TARGET="${RES_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
+if [[ -s "$TARGET" ]]; then
+    print_success "Reddit user-month metrics already exist"
 else
-    print_header "PHASE 1: Build Metrics (Smart Resume)"
-
-    # --- Step 1.1: Reddit User Metrics ---
-    TARGET_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
-    SOURCE_FILE="${BASIC_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
-    
-    if [[ -f "$TARGET_FILE" ]]; then
-        print_success "1.1: Reddit user metrics already exist"
-    elif [[ -f "$SOURCE_FILE" ]]; then
-        print_step "1.1: Found legacy Reddit metrics in basic/. Copying..."
-        cp "$SOURCE_FILE" "$TARGET_FILE"
-        print_success "Copied to alternative pipeline"
-    else
-        run_python_script \
-            "scripts/build_global_monthly_metrics_lowmem.py" \
-            "1.1: Building Reddit user-month metrics" \
-            --community "$COMMUNITY" \
-            --platform reddit \
-            --output-dir "$ALT_REDDIT" \
-            --log-level INFO
-    fi
-    
-    check_file_exists "$TARGET_FILE" "Reddit user-month metrics"
-
-    # --- Step 1.2: Voat User Metrics ---
-    TARGET_FILE="${ALT_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
-    SOURCE_FILE="${BASIC_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
-
-    if [[ -f "$TARGET_FILE" ]]; then
-        print_success "1.2: Voat user metrics already exist"
-    elif [[ -f "$SOURCE_FILE" ]]; then
-        print_step "1.2: Found legacy Voat metrics in basic/. Copying..."
-        cp "$SOURCE_FILE" "$TARGET_FILE"
-        print_success "Copied to alternative pipeline"
-    else
     run_python_script \
         "scripts/build_global_monthly_metrics_lowmem.py" \
-        "1.2: Building Voat user-month metrics" \
+        "Building Reddit user-month metrics" \
+        --community "$COMMUNITY" \
+        --platform reddit \
+        --output-dir "$RES_REDDIT" \
+        --log-level INFO
+fi
+check_file_exists "$TARGET" "Reddit user-month metrics"
+
+# Voat user-month metrics
+TARGET="${RES_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
+if [[ -s "$TARGET" ]]; then
+    print_success "Voat user-month metrics already exist"
+else
+    run_python_script \
+        "scripts/build_global_monthly_metrics_lowmem.py" \
+        "Building Voat user-month metrics" \
         --community "$COMMUNITY" \
         --platform voat \
-        --output-dir "$ALT_VOAT" \
+        --output-dir "$RES_VOAT" \
         --log-level INFO
-    fi
+fi
+check_file_exists "$TARGET" "Voat user-month metrics"
 
-    check_file_exists "$TARGET_FILE" "Voat user-month metrics"
+# Ensure network metrics present; compute if missing for either platform
+print_step "Ensuring network metrics exist..."
+REDDIT_NET_CSV="${RES_REDDIT}/reddit_${COMMUNITY}_global_metrics.csv"
+VOAT_NET_CSV="${RES_VOAT}/voat_${COMMUNITY}_global_metrics.csv"
 
-    # --- Step 1.3: Network Metrics ---
-    print_step "1.3: Checking global network metrics..."
-
-    # Check if network edge lists exist
-    REDDIT_NET_DIR="${NETWORKS_DIR}/reddit/${COMMUNITY}_monthly"
-    VOAT_NET_DIR="${NETWORKS_DIR}/voat/${COMMUNITY}_monthly"
-
-    if [[ ! -d "$REDDIT_NET_DIR" ]] && [[ ! -d "$VOAT_NET_DIR" ]]; then
-        print_warning "Network edge lists not found. Skipping network metrics."
-    else
-        # Check if metrics already exist in the central networks directory
-        REDDIT_NET_CSV="${NETWORKS_DIR}/reddit/results/reddit_${COMMUNITY}_global_metrics.csv"
-        VOAT_NET_CSV="${NETWORKS_DIR}/voat/results/voat_${COMMUNITY}_global_metrics.csv"
+if [[ ! -f "$REDDIT_NET_CSV" || ! -f "$VOAT_NET_CSV" ]]; then
+    run_python_script \
+        "scripts/compute_global_network_metrics.py" \
+        "Computing network metrics (Reddit & Voat)" \
+        --communities "$COMMUNITY" \
+        --platforms reddit voat \
+        --networks-dir "results/networks" \
+        --verbose
         
-        # Only run computation if BOTH are missing (safest approach) or if you want to force update
-        if [[ -f "$REDDIT_NET_CSV" ]] || [[ -f "$VOAT_NET_CSV" ]]; then
-             print_success "Network metrics found in ${NETWORKS_DIR}. Skipping re-computation."
-        else
-             # Compute network metrics (only if missing)
-            run_python_script \
-                "scripts/compute_global_network_metrics.py" \
-                "1.3a: Computing network metrics (Reddit & Voat)" \
-                --communities "$COMMUNITY" \
-                --platforms reddit voat \
-                --networks-dir "$NETWORKS_DIR" \
-                --verbose
-        fi
-
-        # Copy network metrics to alternative directory
-        if [[ -f "$REDDIT_NET_CSV" ]]; then
-            cp "$REDDIT_NET_CSV" "$ALT_NETWORKS_REDDIT/"
-            print_success "Copied Reddit network metrics to $ALT_NETWORKS_REDDIT"
-        fi
-
-        if [[ -f "$VOAT_NET_CSV" ]]; then
-            cp "$VOAT_NET_CSV" "$ALT_NETWORKS_VOAT/"
-            print_success "Copied Voat network metrics to $ALT_NETWORKS_VOAT"
-        fi
-    fi
-
-    # --- Step 1.4: Aggregate Reddit ---
-    TARGET_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_monthly_aggregates.csv"
-    SOURCE_FILE="${BASIC_REDDIT}/reddit_${COMMUNITY}_monthly_aggregates.csv"
-    
-    if [[ -f "$TARGET_FILE" ]]; then
-        print_success "1.4: Reddit aggregates already exist"
-    elif [[ -f "$SOURCE_FILE" ]]; then
-         print_step "1.4: Found legacy Reddit aggregates. Copying..."
-         cp "$SOURCE_FILE" "$TARGET_FILE"
-         print_success "Copied from basic results"
-    else
-        # Pass the explicit path to the user metrics we just built in Step 1.1
-        USER_METRICS_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
-        
-        run_python_script \
-            "scripts/aggregate_monthly_metrics_global.py" \
-            "1.4: Aggregating Reddit monthly metrics" \
-            --community "$COMMUNITY" \
-            --platform reddit \
-            --basic-dir "results/alternative" \
-            --networks-dir "$ALT_ROOT/networks" \
-            --output-dir "$ALT_REDDIT" \
-            --input-file "$USER_METRICS_FILE" \
-            --log-level INFO
-    fi
-
-    check_file_exists "$TARGET_FILE" "Reddit monthly aggregates"
-
-    # --- Step 1.5: Aggregate Voat ---
-    TARGET_FILE="${ALT_VOAT}/voat_${COMMUNITY}_monthly_aggregates.csv"
-    SOURCE_FILE="${BASIC_VOAT}/voat_${COMMUNITY}_monthly_aggregates.csv"
-
-    if [[ -f "$TARGET_FILE" ]]; then
-        print_success "1.5: Voat aggregates already exist"
-    elif [[ -f "$SOURCE_FILE" ]]; then
-         print_step "1.5: Found legacy Voat aggregates. Copying..."
-         cp "$SOURCE_FILE" "$TARGET_FILE"
-         print_success "Copied from basic results"
-    else
-        # Pass explicit path to the user metrics we built in Step 1.2
-        USER_METRICS_FILE="${ALT_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
-
-        run_python_script \
-            "scripts/aggregate_monthly_metrics_global.py" \
-            "1.5: Aggregating Voat monthly metrics" \
-            --community "$COMMUNITY" \
-            --platform voat \
-            --basic-dir "results/alternative" \
-            --networks-dir "$ALT_ROOT/networks" \
-            --output-dir "$ALT_VOAT" \
-            --input-file "$USER_METRICS_FILE" \
-            --log-level INFO
-    fi
-
-    check_file_exists "$TARGET_FILE" "Voat monthly aggregates"
-
-    print_success "Phase 1 complete: Metrics built"
+    # Copy to community folders
+    cp "results/networks/reddit/results/reddit_${COMMUNITY}_global_metrics.csv" "$RES_REDDIT/" 2>/dev/null || true
+    cp "results/networks/voat/results/voat_${COMMUNITY}_global_metrics.csv" "$RES_VOAT/" 2>/dev/null || true
 fi
 
+# Monthly aggregates (merge network metrics)
+TARGET="${RES_REDDIT}/reddit_${COMMUNITY}_monthly_aggregates.csv"
+# Always re-run aggregation as it's fast and might need updates from network metrics
+run_python_script \
+    "scripts/aggregate_monthly_metrics_global.py" \
+    "Aggregating Reddit monthly metrics" \
+    --community "$COMMUNITY" \
+    --platform reddit \
+    --basic-dir "results" \
+    --networks-dir "results" \
+    --output-dir "$RES_REDDIT" \
+    --input-file "${RES_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet" \
+    --log-level INFO
+check_file_exists "$TARGET" "Reddit monthly aggregates"
+
+TARGET="${RES_VOAT}/voat_${COMMUNITY}_monthly_aggregates.csv"
+run_python_script \
+    "scripts/aggregate_monthly_metrics_global.py" \
+    "Aggregating Voat monthly metrics" \
+    --community "$COMMUNITY" \
+    --platform voat \
+    --basic-dir "results" \
+    --networks-dir "results" \
+    --output-dir "$RES_VOAT" \
+    --input-file "${RES_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet" \
+    --log-level INFO
+check_file_exists "$TARGET" "Voat monthly aggregates"
+
+print_success "Step 1 complete"
+
 # ============================================================================
-# PHASE 2: Reddit-Voat Comparison
+# STEP 2: Bootstrap bands (toxicity, sentiment)
 # ============================================================================
 
-if [[ "$SKIP_PHASE_2" == true ]]; then
-    print_warning "Skipping Phase 2 (as requested)"
+print_header "STEP 2: Bootstrap bands (toxicity, sentiment)"
+
+TARGET="${RES_COMPARE}/${COMMUNITY}_global_bootstrap_summary.csv"
+if [[ -s "$TARGET" ]]; then
+    print_success "Bootstrap summary already exists"
 else
-    print_header "PHASE 2: Reddit-Voat Comparison (3 steps)"
-
-    # Step 2.1: Bootstrap
-    # Pass explicit paths to user metrics from Phase 1
-    REDDIT_METRICS_FILE="${ALT_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet"
-    VOAT_METRICS_FILE="${ALT_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet"
-
     run_python_script \
         "scripts/compare_global_bootstrap.py" \
-        "2.1: Generating activity-matched bootstrap samples" \
+        "Bootstrap toxicity/sentiment" \
         --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
-        --output-dir "$ALT_COMPARE" \
-        --reddit-metrics "$REDDIT_METRICS_FILE" \
-        --voat-metrics "$VOAT_METRICS_FILE" \
+        --basic-dir "results" \
+        --output-dir "$RES_COMPARE" \
+        --reddit-metrics "${RES_REDDIT}/reddit_${COMMUNITY}_user_month_metrics.parquet" \
+        --voat-metrics "${RES_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet" \
         --bootstrap-iterations "$BOOTSTRAP_ITERATIONS" \
         --seed "$RANDOM_SEED" \
         --log-level INFO
-
-    check_file_exists \
-        "${ALT_COMPARE}/${COMMUNITY}_global_monthly_metrics.csv" \
-        "Combined monthly metrics"
-
-    check_file_exists \
-        "${ALT_COMPARE}/${COMMUNITY}_global_bootstrap_samples.csv" \
-        "Bootstrap samples"
-
-    check_file_exists \
-        "${ALT_COMPARE}/${COMMUNITY}_global_bootstrap_summary.csv" \
-        "Bootstrap summary (percentiles)"
-
-    # Step 2.2: Event windows
-    run_python_script \
-        "scripts/analyze_global_event_windows.py" \
-        "2.2: Analyzing event windows (Events A, B, C)" \
-        --community "$COMMUNITY" \
-        --compare-dir "$ALT_COMPARE" \
-        --networks-dir "$ALT_ROOT/networks" \
-        --output-dir "$ALT_COMPARE" \
-        --log-level INFO
-
-    check_file_exists \
-        "${ALT_COMPARE}/${COMMUNITY}_global_event_window_summary.csv" \
-        "Event window summary"
-
-    # Step 2.3: Significance testing
-    run_python_script \
-        "scripts/global_significance_testing.py" \
-        "2.3: Statistical significance testing" \
-        --community "$COMMUNITY" \
-        --compare-dir "$ALT_COMPARE" \
-        --output-dir "$ALT_COMPARE" \
-        --log-level INFO
-
-    check_file_exists \
-        "${ALT_COMPARE}/${COMMUNITY}_global_significance_summary.csv" \
-        "Significance summary"
-
-    print_success "Phase 2 complete: Reddit-Voat comparison done"
 fi
 
-# ============================================================================
-# PHASE 3: Voat Newcomer Analysis
-# ============================================================================
+check_file_exists "$TARGET" "Bootstrap summary"
 
-if [[ "$SKIP_PHASE_3" == true ]]; then
-    print_warning "Skipping Phase 3 (as requested)"
-else
-    print_header "PHASE 3: Voat Newcomer Analysis (3 steps)"
-
-    # Step 3.1: Identify newcomers
-    run_python_script \
-        "scripts/identify_voat_newcomers.py" \
-        "3.1: Identifying Voat newcomers (from Event A)" \
-        --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
-        --output-dir "$ALT_VOAT" \
-        --log-level INFO
-
-    check_file_exists \
-        "${ALT_VOAT}/voat_${COMMUNITY}_newcomer_labels.csv" \
-        "Newcomer labels"
-
-    # Step 3.2: Month-by-month analysis
-    print_step "3.2: Analyzing monthly newcomer dynamics..."
-    print_warning "  Note: This step requires network edge lists"
-    print_warning "  If network files are missing, partition metrics will be NaN"
-
-    run_python_script \
-        "scripts/analyze_monthly_newcomers.py" \
-        "3.2: Monthly newcomer vs existing analysis" \
-        --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
-        --networks-dir "$NETWORKS_DIR" \
-        --output-dir "$ALT_VOAT" \
-        --log-level INFO
-
-    check_file_exists \
-        "${ALT_VOAT}/voat_${COMMUNITY}_monthly_newcomer_analysis.csv" \
-        "Monthly newcomer analysis"
-
-    # Step 3.3: Cumulative period analysis
-    run_python_script \
-        "scripts/analyze_cumulative_newcomers.py" \
-        "3.3: Cumulative period newcomer analysis (A→B, B→C, C→End)" \
-        --community "$COMMUNITY" \
-        --basic-dir "results/alternative" \
-        --networks-dir "$NETWORKS_DIR" \
-        --output-dir "$ALT_VOAT" \
-        --log-level INFO
-
-    check_file_exists \
-        "${ALT_VOAT}/voat_${COMMUNITY}_cumulative_newcomer_analysis.csv" \
-        "Cumulative newcomer analysis"
-
-    print_success "Phase 3 complete: Newcomer analysis done"
-fi
+print_success "Step 2 complete"
 
 # ============================================================================
-# PHASE 4: Visualization
+# STEP 3: Newcomer partition (Voat) - For Global Aggregate E-I
 # ============================================================================
 
-if [[ "$SKIP_PHASE_4" == true ]]; then
-    print_warning "Skipping Phase 4 (as requested)"
-else
-    print_header "PHASE 4: Visualization (4 plots)"
+print_header "STEP 3: Newcomer partition metrics"
 
-    # Plot 4.1: Global comparison panels
-    run_python_script \
-        "scripts/plot_global_comparison_panels.py" \
-        "4.1: Creating global comparison panels" \
-        --community "$COMMUNITY" \
-        --compare-dir "$ALT_COMPARE" \
-        --networks-dir "$ALT_ROOT/networks" \
-        --output-dir "$ALT_FIGURES"
+run_python_script \
+    "scripts/identify_voat_newcomers.py" \
+    "Identify Voat newcomers" \
+    --community "$COMMUNITY" \
+    --basic-dir "$RESULTS_ROOT" \
+    --voat-metrics "${RES_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet" \
+    --output-dir "$RES_VOAT" \
+    --log-level INFO
+check_file_exists "${RES_VOAT}/voat_${COMMUNITY}_newcomer_labels.csv" "Newcomer labels"
 
-    check_file_exists \
-        "${ALT_FIGURES}/${COMMUNITY}_global_comparison_panels.png" \
-        "Global comparison panels figure"
+run_python_script \
+    "scripts/analyze_monthly_newcomers.py" \
+    "Monthly newcomer vs existing partition metrics" \
+    --community "$COMMUNITY" \
+    --basic-dir "$RESULTS_ROOT" \
+    --networks-dir "results/networks" \
+    --voat-metrics "${RES_VOAT}/voat_${COMMUNITY}_user_month_metrics.parquet" \
+    --output-dir "$RES_VOAT" \
+    --log-level INFO
+check_file_exists "${RES_VOAT}/voat_${COMMUNITY}_monthly_newcomer_analysis.csv" "Monthly newcomer analysis"
 
-    # Plot 4.2: Newcomer dynamics
-    run_python_script \
-        "scripts/plot_newcomer_dynamics.py" \
-        "4.2: Creating newcomer dynamics plot" \
-        --community "$COMMUNITY" \
-        --basic-dir "$ALT_ROOT" \
-        --output-dir "$ALT_FIGURES"
-
-    check_file_exists \
-        "${ALT_FIGURES}/${COMMUNITY}_monthly_newcomer_dynamics.png" \
-        "Newcomer dynamics figure"
-
-    # Plot 4.3: Cumulative periods
-    run_python_script \
-        "scripts/plot_cumulative_newcomer_periods.py" \
-        "4.3: Creating cumulative period comparison plot" \
-        --community "$COMMUNITY" \
-        --basic-dir "$ALT_ROOT" \
-        --output-dir "$ALT_FIGURES"
-
-    check_file_exists \
-        "${ALT_FIGURES}/${COMMUNITY}_cumulative_newcomer_periods.png" \
-        "Cumulative periods figure"
-
-    print_success "Phase 4 complete: All visualizations created"
-fi
+print_success "Step 3 complete"
 
 # ============================================================================
-# Final Summary
+# STEP 4: Merge + Plot overview
 # ============================================================================
 
-print_header "Pipeline Complete for ${COMMUNITY}"
+print_header "STEP 4: Merge metrics and plot overview"
 
-echo -e "${GREEN}✓ All outputs saved to: ${ALT_ROOT}${NC}"
-echo ""
-echo "📂 Directory structure:"
-echo "  $ALT_ROOT/"
-echo "  ├── reddit/                    # Reddit metrics"
-echo "  ├── voat/                      # Voat metrics + newcomer analysis"
-echo "  ├── compare/                   # Bootstrap, events, significance"
-echo "  ├── networks/                  # Network metrics"
-echo "  │   ├── reddit/"
-echo "  │   └── voat/"
-echo "  └── figures/                   # All visualizations"
-echo ""
+run_python_script \
+    "scripts/merge_overview_metrics.py" \
+    "Merging metrics for overview outputs" \
+    --community "$COMMUNITY" \
+    --results-root "$RESULTS_ROOT" \
+    --compare-dir "$RES_COMPARE" \
+    --output-dir "$RES_COMPARE"
 
-# Count outputs
-TOTAL_FILES=$(find "$ALT_ROOT" -type f | wc -l)
-CSV_FILES=$(find "$ALT_ROOT" -name "*.csv" | wc -l)
-PARQUET_FILES=$(find "$ALT_ROOT" -name "*.parquet" | wc -l)
-PNG_FILES=$(find "$ALT_ROOT" -name "*.png" | wc -l)
+check_file_exists "${RES_COMPARE}/${COMMUNITY}_monthly_metrics.csv" "Merged monthly metrics"
+check_file_exists "${RES_COMPARE}/${COMMUNITY}_summary.csv" "Summary metrics"
 
-echo "📊 Output summary:"
-echo "  Total files: $TOTAL_FILES"
-echo "  CSV files: $CSV_FILES"
-echo "  Parquet files: $PARQUET_FILES"
-echo "  PNG figures: $PNG_FILES"
-echo ""
+run_python_script \
+    "scripts/plot_overview.py" \
+    "Plotting 8-panel overview" \
+    --community "$COMMUNITY" \
+    --monthly-file "${RES_COMPARE}/${COMMUNITY}_monthly_metrics.csv" \
+    --output-dir "$FIG_COMPARE"
 
-# List key outputs
-echo "🔑 Key outputs:"
-echo ""
-echo "  Behavioral Metrics:"
-echo "    - ${ALT_COMPARE}/${COMMUNITY}_global_monthly_metrics.csv"
-echo ""
-echo "  Statistical Tests:"
-echo "    - ${ALT_COMPARE}/${COMMUNITY}_global_significance_summary.csv"
-echo "    - ${ALT_COMPARE}/${COMMUNITY}_global_event_window_summary.csv"
-echo ""
-echo "  Newcomer Analysis:"
-echo "    - ${ALT_VOAT}/voat_${COMMUNITY}_monthly_newcomer_analysis.csv"
-echo "    - ${ALT_VOAT}/voat_${COMMUNITY}_cumulative_newcomer_analysis.csv"
-echo ""
-echo "  Figures:"
-for fig in "${ALT_FIGURES}"/*.png; do
-    if [[ -f "$fig" ]]; then
-        echo "    - $(basename "$fig")"
-    fi
-done
-echo ""
+check_file_exists "${FIG_COMPARE}/${COMMUNITY}_overview.png" "Overview figure"
 
-print_success "Pipeline execution completed successfully!"
-echo ""
-echo "To view figures:"
-echo "  ls -lh ${ALT_FIGURES}/"
-echo ""
-echo "To run for another community:"
-echo "  bash scripts/run_alternative_pipeline.sh <community>"
-echo ""
+print_success "Pipeline complete for ${COMMUNITY}"
+echo "Outputs:"
+echo "  Monthly metrics: ${RES_COMPARE}/${COMMUNITY}_monthly_metrics.csv"
+echo "  Summary metrics: ${RES_COMPARE}/${COMMUNITY}_summary.csv"
+echo "  Figure: ${FIG_COMPARE}/${COMMUNITY}_overview.png"
