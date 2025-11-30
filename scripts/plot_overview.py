@@ -13,10 +13,15 @@ from scripts.migration_utils import EVENTS, EVENT_LABELS
 
 
 def add_events(ax):
+    """Add vertical event lines with clear labels."""
+    ylim = ax.get_ylim()
+    y_pos = ylim[0] + (ylim[1] - ylim[0]) * 0.98  # 98% up from bottom
     for key, ts in EVENTS.items():
-        ax.axvline(ts, color="k", linestyle="--", alpha=0.4, linewidth=1)
+        ax.axvline(ts, color="gray", linestyle="--", alpha=0.5, linewidth=0.8, zorder=1)
         label = EVENT_LABELS.get(key, key)
-        ax.text(ts, ax.get_ylim()[1], label, ha="center", va="bottom", fontsize=8, color="k")
+        ax.text(ts, y_pos, label, ha="center", va="top", fontsize=7, 
+                color="gray", rotation=0, bbox=dict(boxstyle="round,pad=0.3", 
+                facecolor="white", edgecolor="none", alpha=0.7))
 
 
 def maybe_band(ax, df, col_base):
@@ -43,10 +48,17 @@ def main():
     parser.add_argument("--monthly-file", type=Path, required=True, help="Merged monthly metrics CSV")
     parser.add_argument("--partition-file", type=Path, help="Deprecated/Ignored", required=False)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--start-date", default="2015-09-01", help="Start date for plots (YYYY-MM-DD)")
+    parser.add_argument("--end-date", default="2020-12-31", help="End date for plots (YYYY-MM-DD)")
     args = parser.parse_args()
 
     monthly = pd.read_csv(args.monthly_file)
     monthly["month_dt"] = pd.to_datetime(monthly["month"] + "-01")
+    
+    # Filter date range (default: September 2015 to December 2020)
+    start_dt = pd.to_datetime(args.start_date)
+    end_dt = pd.to_datetime(args.end_date)
+    monthly = monthly[(monthly["month_dt"] >= start_dt) & (monthly["month_dt"] <= end_dt)].copy()
 
     fig, axes = plt.subplots(4, 2, figsize=(14, 16), sharex=True)
     axes = axes.flatten()
@@ -56,8 +68,8 @@ def main():
         axes[0],
         monthly,
         [
-            ("Toxicity Reddit", "toxicity_mean_reddit"),
-            ("Toxicity Voat", "toxicity_mean_voat"),
+            ("Reddit", "toxicity_mean_reddit"),
+            ("Voat", "toxicity_mean_voat"),
         ],
         "Mean Toxicity",
     )
@@ -68,8 +80,8 @@ def main():
         axes[1],
         monthly,
         [
-            ("Sentiment Reddit", "vader_mean_reddit"),
-            ("Sentiment Voat", "vader_mean_voat"),
+            ("Reddit", "vader_mean_reddit"),
+            ("Voat", "vader_mean_voat"),
         ],
         "Mean Sentiment (VADER)",
     )
@@ -80,8 +92,8 @@ def main():
         axes[2],
         monthly,
         [
-            ("Reputation Reddit", "reputation_mean_reddit"),
-            ("Reputation Voat", "reputation_mean_voat"),
+            ("Reddit", "reputation_mean_reddit"),
+            ("Voat", "reputation_mean_voat"),
         ],
         "Mean Reputation",
     )
@@ -91,49 +103,48 @@ def main():
         axes[3],
         monthly,
         [
-            ("Degree Reddit", "mean_degree_reddit"),
-            ("Degree Voat", "mean_degree_voat"),
+            ("Reddit", "mean_degree_reddit"),
+            ("Voat", "mean_degree_voat"),
         ],
         "Mean Degree",
     )
 
-    # 5. Active users (Reddit)
-    plot_lines(
-        axes[4],
-        monthly,
-        [("Active Users Reddit", "rep_active_users_reddit")],
-        "Active Users (Reputation-active) Reddit",
-    )
+    # 5. Active users (Reddit) - use log scale due to scale difference
+    if "active_users_reddit" in monthly.columns:
+        axes[4].plot(monthly["month_dt"], monthly["active_users_reddit"], label="Reddit")
+        axes[4].set_yscale("log")
+    axes[4].set_title("Active Users (Reddit)")
+    axes[4].legend(loc="upper right")
+    add_events(axes[4])
 
     # 6. Active users (Voat)
-    plot_lines(
-        axes[5],
-        monthly,
-        [("Active Users Voat", "rep_active_users_voat")],
-        "Active Users (Reputation-active) Voat",
-    )
+    if "active_users_voat" in monthly.columns:
+        axes[5].plot(monthly["month_dt"], monthly["active_users_voat"], label="Voat", color="C1")
+    axes[5].set_title("Active Users (Voat)")
+    axes[5].legend(loc="upper right")
+    add_events(axes[5])
 
     # 7. Degree assortativity
     plot_lines(
         axes[6],
         monthly,
         [
-            ("Assortativity Reddit", "degree_assortativity_reddit"),
-            ("Assortativity Voat", "degree_assortativity_voat"),
+            ("Reddit", "degree_assortativity_reddit"),
+            ("Voat", "degree_assortativity_voat"),
         ],
         "Degree Assortativity",
     )
 
-    # 8. Clustering Coefficient (Replacing E-I)
+    # 8. E-I Index (Voat only - newcomer/existing mixing)
     plot_lines(
         axes[7],
         monthly,
         [
-            ("Clustering Reddit", "mean_clustering_reddit"),
-            ("Clustering Voat", "mean_clustering_voat"),
+            ("Voat E-I", "ei_index"),
         ],
-        "Mean Clustering Coefficient",
+        "E-I Index (Voat)\nLower = Inward, Higher = Outward",
     )
+    axes[7].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
 
     # Legends
     for ax in axes:
