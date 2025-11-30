@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Merge monthly metrics for the overview figure and write summary CSVs.
+
+Outputs:
+- compare/<community>_monthly_metrics.csv  (wide, one row per month)
+- compare/<community>_summary.csv         (mean/median per metric)
+- voat/<community>_newcomer_partition.csv (assortativity / E-I over time)
+"""
+
+import argparse
+from pathlib import Path
+import pandas as pd
+
+
+def load_monthly(path: Path, platform: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    df["platform"] = platform
+    df["month"] = df["month"].astype(str)
+    return df
+
+
+def pivot_metric(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+    subset = df[["month", "platform", metric]].copy()
+    wide = subset.pivot(index="month", columns="platform", values=metric)
+    wide.columns = [f"{metric}_{c}" for c in wide.columns]
+    wide = wide.reset_index()
+    return wide
+
+
+def attach_bootstrap_bands(monthly: pd.DataFrame, bootstrap_path: Path) -> pd.DataFrame:
+    if not bootstrap_path.exists():
+        return monthly
+    bs = pd.read_csv(bootstrap_path)
+    if not {"metric", "percentile", "value", "month"}.issubset(bs.columns):
+        return monthly
+    bs["month"] = bs["month"].astype(str)
+    bands = {}
+    for metric in ["toxicity_mean", "vader_mean"]:
+        sub = bs[bs["metric"] == metric]
+        if sub.empty:
+            continue
+        pivot = sub.pivot_table(index="month", columns="percentile", values="value")
+        for p in [5, 50, 95]:
+            if p in pivot.columns:
+                bands[f"{metric}_p{p}"] = pivot[p]
+    if not bands:
+        return monthly
+    band_df = pd.DataFrame(bands).reset_index().rename(columns={"index": "month"})
+    merged = monthly.merge(band_df, on="month", how="left")
+    return merged
+
+
+def save_partition(partition_src: Path, out_path: Path) -> pd.DataFrame:
+    part_df = pd.read_csv(partition_src)
+    keep_cols = [c for c in part_df.columns if c in {"month", "assortativity", "ei_index", "n_newcomers", "n_existing"}]
+    part_df = part_df[keep_cols].copy()
+    part_df.to_csv(out_path, index=False)
+    return part_df
+
+
+def write_summary(monthly: pd.DataFrame, out_path: Path) -> None:
+    numeric_cols = [c for c in monthly.columns if c != "month" and pd.api.types.is_numeric_dtype(monthly[c])]
+    rows = []
+    for col in numeric_cols:
+        series = monthly[col]
+        rows.append(
+            {
+                "metric": col,
+                "mean": series.mean(),
+                "median": series.median(),
+            }
+        )
+    pd.DataFrame(rows).to_csv(out_path, index=False)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--community", required=True)
+    parser.add_argument("--results-root", type=Path, required=True, help="results root dir")
+    parser.add_argument("--compare-dir", type=Path, required=True, help="output dir for merged metrics")
+    parser.add_argument("--output-dir", type=Path, help="ignored (legacy compatibility)")
+    args = parser.parse_args()
+
+    community = args.community
+    results_root = args.results_root
+    compare_dir = args.compare_dir
+
+    # Adjusted paths for new structure: results/{platform}/{community}/...
+    reddit_monthly = results_root / "reddit" / community / f"reddit_{community}_monthly_aggregates.csv"
+    voat_monthly = results_root / "voat" / community / f"voat_{community}_monthly_aggregates.csv"
+    bootstrap_path = compare_dir / f"{community}_global_bootstrap_summary.csv"
+    
+    # Partition source/dest
+    partition_src = results_root / "voat" / community / f"voat_{community}_monthly_newcomer_analysis.csv"
+    partition_out = results_root / "voat" / community / f"{community}_newcomer_partition.csv"
+
+    r_df = load_monthly(reddit_monthly, "reddit")
+    v_df = load_monthly(voat_monthly, "voat")
+    base = pd.concat([r_df, v_df], ignore_index=True)
+
+    metrics = [
+        "toxicity_mean",
+        "vader_mean",
+        "reputation_mean",
+        "mean_degree",
+        "rep_active_users",
+        "degree_assortativity",
+        "mean_clustering",
+    ]
+
+    merged = pd.DataFrame({"month": sorted(base["month"].unique())})
+    for metric in metrics:
+        wide = pivot_metric(base, metric)
+        merged = merged.merge(wide, on="month", how="left")
+
+    merged = attach_bootstrap_bands(merged, bootstrap_path)
+
+    compare_out = compare_dir / f"{community}_monthly_metrics.csv"
+    merged.to_csv(compare_out, index=False)
+
+    summary_out = compare_dir / f"{community}_summary.csv"
+    write_summary(merged, summary_out)
+
+    if partition_src.exists():
+        partition_df = save_partition(partition_src, partition_out)
+        print(f"wrote {partition_out} ({len(partition_df)} rows)")
+    else:
+        print(f"Partition file not found: {partition_src} - skipping")
+
+    print(f"wrote {compare_out}")
+    print(f"wrote {summary_out}")
+
+
+if __name__ == "__main__":
+    main()

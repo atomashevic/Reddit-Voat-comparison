@@ -9,20 +9,23 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-# Key Migration Events
+# Key Migration / Platform Events
 # A: FPH Ban (2015-06)
 # B: GreatAwakening Ban (2018-09)
 # C: The_Donald Ban (2020-06)
+# D: Reddit bans /r/pizzagate (2016-11-23)
 EVENTS = {
     "A": pd.Timestamp("2015-06-10"),
     "B": pd.Timestamp("2018-09-12"),
     "C": pd.Timestamp("2020-06-29"),
+    "D": pd.Timestamp("2016-11-23"),
 }
 
 EVENT_LABELS = {
     "A": "FPH Ban",
     "B": "GA Ban",
     "C": "TD Ban",
+    "D": "Pizzagate Ban",
 }
 
 # Standard Metrics

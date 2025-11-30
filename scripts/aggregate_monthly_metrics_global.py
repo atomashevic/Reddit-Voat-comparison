@@ -82,16 +82,22 @@ def aggregate_with_duckdb(parquet_path):
         conn.close()
 
 def load_network_metrics(networks_dir, platform, community):
-    # Prefer the canonical location (.../<platform>/results/...), but also
-    # accept flattened copies (.../<platform>/...) used by the alternative pipeline.
-    primary = networks_dir / platform / "results" / f"{platform}_{community}_global_metrics.csv"
-    fallback = networks_dir / platform / f"{platform}_{community}_global_metrics.csv"
-    if primary.exists():
-        path = primary
-    elif fallback.exists():
-        path = fallback
-    else:
-        logging.warning(f"Network metrics not found in {primary} or {fallback}")
+    # Look for network metrics in:
+    # 1. {networks_dir}/{platform}/{community}/... (New structure)
+    # 2. {networks_dir}/{platform}/results/... (Old structure)
+    # 3. {networks_dir}/{platform}/... (Flattened)
+    
+    filename = f"{platform}_{community}_global_metrics.csv"
+    candidates = [
+        networks_dir / platform / community / filename,
+        networks_dir / platform / "results" / filename,
+        networks_dir / platform / filename,
+    ]
+    
+    path = next((p for p in candidates if p.exists()), None)
+
+    if path is None:
+        logging.warning(f"Network metrics not found in candidates: {candidates}")
         return pd.DataFrame()
 
     df = pd.read_csv(path)
