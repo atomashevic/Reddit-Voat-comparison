@@ -24,8 +24,8 @@ data/
 networks/
 
 # Results and Figures
-results/
-
+# Exclude Parquet files (too large for GitHub), but allow CSVs, figures, and other outputs
+results/**/*.parquet
 
 # LaTeX build artifacts
 *.aux
