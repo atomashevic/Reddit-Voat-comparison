@@ -6,6 +6,7 @@ Computes user-weighted averages for:
 - Degree Assortativity (Voat)
 - Mean Degree (Voat)
 - Toxicity (Voat) - for overlay
+- Reputation Mean and Median (Voat) - for active users (rep >= 1)
 """
 
 import argparse
@@ -22,28 +23,39 @@ COMMUNITIES = ["funny", "gaming", "technology", "videos", "gifs", "pics"]
 
 def load_community_data(results_root: Path, community: str) -> pd.DataFrame:
     """Load monthly metrics and partition metrics for a community."""
-    # Load merged monthly metrics (contains degree, assortativity, toxicity, active users)
+    # Load merged monthly metrics (contains degree, assortativity, toxicity, active users, ei_index)
     monthly_path = results_root / "compare" / community / f"{community}_monthly_metrics.csv"
     if not monthly_path.exists():
         logging.warning(f"Missing monthly metrics for {community}: {monthly_path}")
         return pd.DataFrame()
 
     df = pd.read_csv(monthly_path)
-    
-    # Load partition metrics (contains E-I index)
-    partition_path = results_root / "voat" / community / f"{community}_newcomer_partition.csv"
-    if partition_path.exists():
-        part_df = pd.read_csv(partition_path)
-        # Merge E-I index into main df
-        # part_df should have 'month' and 'ei_index'
-        if "ei_index" in part_df.columns:
-            # Ensure month format matches
-            part_df["month"] = part_df["month"].astype(str)
-            df["month"] = df["month"].astype(str)
-            df = df.merge(part_df[["month", "ei_index"]], on="month", how="left")
+    df["month"] = df["month"].astype(str)
+
+    # Load Voat monthly aggregates (contains reputation_mean, reputation_median, rep_active_users)
+    voat_agg_path = results_root / "voat" / community / f"voat_{community}_monthly_aggregates.csv"
+    if voat_agg_path.exists():
+        voat_df = pd.read_csv(voat_agg_path)
+        voat_df["month"] = voat_df["month"].astype(str)
+        # Merge reputation columns
+        rep_cols = ["month"]
+        if "reputation_mean" in voat_df.columns:
+            rep_cols.append("reputation_mean")
+        if "reputation_median" in voat_df.columns:
+            rep_cols.append("reputation_median")
+        if "rep_active_users" in voat_df.columns:
+            rep_cols.append("rep_active_users")
+        if len(rep_cols) > 1:
+            df = df.merge(voat_df[rep_cols], on="month", how="left", suffixes=("", "_voat_agg"))
+            # Rename to voat-specific names
+            if "reputation_mean" in df.columns:
+                df = df.rename(columns={"reputation_mean": "reputation_mean_voat_agg"})
+            if "reputation_median" in df.columns:
+                df = df.rename(columns={"reputation_median": "reputation_median_voat"})
+            if "rep_active_users" in df.columns:
+                df = df.rename(columns={"rep_active_users": "rep_active_users_voat"})
     else:
-        logging.warning(f"Missing partition metrics for {community}: {partition_path}")
-        df["ei_index"] = np.nan
+        logging.warning(f"Missing Voat aggregates for {community}: {voat_agg_path}")
 
     df["community"] = community
     return df
@@ -97,16 +109,19 @@ def main():
     # Ensure month is datetime for sorting (but groupby uses string usually)
     # We keep it as string for groupby, then convert later
     
-    # Metrics to aggregate (Voat)
+    # Metrics to aggregate (Voat) - use active_users_voat for general metrics,
+    # rep_active_users_voat (users with rep >= 1) for reputation metrics
     metrics = {
-        "ei_index": "rep_active_users_voat",
-        "degree_assortativity_voat": "rep_active_users_voat",
-        "mean_degree_voat": "rep_active_users_voat",
-        "toxicity_mean_voat": "rep_active_users_voat",
+        "ei_index": "active_users_voat",
+        "degree_assortativity_voat": "active_users_voat",
+        "mean_degree_voat": "active_users_voat",
+        "toxicity_mean_voat": "active_users_voat",
+        "reputation_mean_voat_agg": "rep_active_users_voat",
+        "reputation_median_voat": "rep_active_users_voat",
     }
     
     # Also compute sum of active users
-    total_users = full_df.groupby("month")["rep_active_users_voat"].sum().rename("total_active_users_voat")
+    total_users = full_df.groupby("month")["active_users_voat"].sum().rename("total_active_users_voat")
     
     agg_dfs = [total_users]
     
