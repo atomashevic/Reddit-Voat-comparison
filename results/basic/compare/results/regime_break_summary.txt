@@ -1,0 +1,25 @@
+Regime Breakpoint Analysis (single-break segmented regression)
+========================================================================
+Communities analyzed: funny, gaming, gifs, global, pics, technology, videos
+Metrics analyzed: toxicity_mean, ei_index, existing_gini, reputation_mean, degree_assortativity
+Min segment length: 6 months
+Bootstrap iterations: 200 (seed=2025)
+Reference event (GA ban): 2018-09-12 (month=2018-09)
+
+Breaks near GA ban (±3 months): 6/35
+
+- toxicity_mean: 0/7 near GA; break months observed: 2015-02, 2018-04, 2018-05, 2019-02, 2020-03; median SSE ratio=0.604
+- ei_index: 5/7 near GA; break months observed: 2017-02, 2018-10, 2019-01; median SSE ratio=0.358
+- existing_gini: 0/7 near GA; break months observed: 2015-07; median SSE ratio=0.181
+- reputation_mean: 1/7 near GA; break months observed: 2014-11, 2015-01, 2015-08, 2016-05, 2016-06, 2016-10, 2018-07; median SSE ratio=0.640
+- degree_assortativity: 0/7 near GA; break months observed: 2015-01, 2015-03, 2015-05, 2015-06, 2015-07, 2015-09; median SSE ratio=0.464
+
+Strongest breaks (lowest SSE ratio):
+  global/existing_gini: break=2015-07, pre_slope=0.02227, post_slope=-0.002936, SSE_ratio=0.080, CI≈[2015-07,2015-07], stab±3m=1.00
+  funny/existing_gini: break=2015-07, pre_slope=0.01315, post_slope=-0.002285, SSE_ratio=0.133, CI≈[2015-07,2015-07], stab±3m=1.00
+  videos/existing_gini: break=2015-07, pre_slope=0.03087, post_slope=-0.003534, SSE_ratio=0.163, CI≈[2015-07,2015-07], stab±3m=1.00
+  pics/existing_gini: break=2015-07, pre_slope=0.02459, post_slope=-0.003668, SSE_ratio=0.181, CI≈[2015-07,2015-07], stab±3m=1.00
+  technology/existing_gini: break=2015-07, pre_slope=0.02219, post_slope=-0.002982, SSE_ratio=0.227, CI≈[2015-07,2015-07], stab±3m=1.00
+  technology/degree_assortativity: break=2015-07, pre_slope=0.02834, post_slope=-0.003709, SSE_ratio=0.275, CI≈[2015-05,2016-02], stab±3m=0.79
+  global/ei_index: break=2018-10, pre_slope=-0.01323, post_slope=-0.001863, SSE_ratio=0.285, CI≈[2018-10,2018-10], stab±3m=1.00
+  videos/ei_index: break=2018-10, pre_slope=-0.01166, post_slope=0.0004806, SSE_ratio=0.286, CI≈[2018-10,2018-10], stab±3m=1.00

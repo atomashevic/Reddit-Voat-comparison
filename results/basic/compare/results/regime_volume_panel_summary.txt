@@ -1,0 +1,29 @@
+Package B Panel Regression: Volume vs Integration
+========================================================================
+Communities: funny, gaming, gifs, pics, technology, videos
+Months included: 2013-11 to 2020-12
+GA cutoff month: 2018-09 (EVENT B)
+Models are descriptive with community fixed effects and a linear time trend; they do not identify causal effects.
+
+Model 1: toxicity_mean (Voat)
+  N=463, clusters=6, R2=0.820
+  Coefficients (cluster-robust SE; normal-approx p):
+    newcomer_pop_share:  0.04325 (SE 0.00802), t=5.39, p≈0.000
+    post_ga:  0.001435 (SE 0.011), t=0.13, p≈0.896
+    newcomer_x_post_ga:  0.02775 (SE 0.0199), t=1.39, p≈0.164
+    time_index:  0.00241 (SE 9.93e-05), t=24.27, p≈0.000
+  Implied newcomer effect pre‑GA: 0.04325; post‑GA: 0.071
+
+Model 2: E-I index (Voat)
+  N=396, clusters=6, R2=0.506
+  Coefficients (cluster-robust SE; normal-approx p):
+    newcomer_pop_share: -2.909 (SE 0.957), t=-3.04, p≈0.002
+    post_ga: -2.453 (SE 0.966), t=-2.54, p≈0.011
+    newcomer_x_post_ga:  3.222 (SE 1.02), t=3.17, p≈0.002
+    time_index: -0.003741 (SE 0.00185), t=-2.02, p≈0.043
+  Implied newcomer effect pre‑GA: -2.909; post‑GA: 0.3134
+
+Descriptive means (unweighted across communities):
+  newcomer_pop_share: pre‑GA=0.7207, post‑GA=0.507
+  toxicity_mean: pre‑GA=0.1327, post‑GA=0.2427
+  ei_index: pre‑GA=-0.3759, post‑GA=-0.08035

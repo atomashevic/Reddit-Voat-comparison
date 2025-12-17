@@ -11,6 +11,10 @@ import matplotlib.pyplot as plt
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from scripts.migration_utils import EVENTS, EVENT_LABELS
 
+# Style constants (consistent with plot_global_summary.py)
+VOAT_COLOR = "#800080"   # Purple
+REDDIT_COLOR = "#ff7f0e" # Orange
+
 
 def add_events(ax):
     """Add vertical event lines with clear labels."""
@@ -32,10 +36,30 @@ def maybe_band(ax, df, col_base):
 
 
 def plot_lines(ax, df, columns, title, ylabel=None):
+    """Plot lines with 3-month rolling mean and lighter raw curve behind.
+    
+    columns: list of (label, col_name) tuples. If label contains "Reddit", uses
+             REDDIT_COLOR; if "Voat", uses VOAT_COLOR.
+    """
     for label, col in columns:
         if col not in df.columns:
             continue
-        ax.plot(df["month_dt"], df[col], label=label)
+        
+        # Determine color based on label
+        if "reddit" in label.lower():
+            color = REDDIT_COLOR
+        else:
+            color = VOAT_COLOR
+        
+        # Compute 3-month centered rolling mean
+        raw_data = df[col]
+        rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
+        
+        # Plot raw data (lighter, behind)
+        ax.plot(df["month_dt"], raw_data, color=color, linewidth=1, alpha=0.3)
+        # Plot rolling mean (thicker, in front)
+        ax.plot(df["month_dt"], rolling_data, color=color, linewidth=2.5, label=f"{label} (3-mo avg)")
+    
     ax.set_title(title)
     if ylabel:
         ax.set_ylabel(ylabel)
@@ -111,7 +135,10 @@ def main():
 
     # 5. Active users (Reddit) - use log scale due to scale difference
     if "active_users_reddit" in monthly.columns:
-        axes[4].plot(monthly["month_dt"], monthly["active_users_reddit"], label="Reddit")
+        raw_data = monthly["active_users_reddit"]
+        rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
+        axes[4].plot(monthly["month_dt"], raw_data, color=REDDIT_COLOR, linewidth=1, alpha=0.3)
+        axes[4].plot(monthly["month_dt"], rolling_data, color=REDDIT_COLOR, linewidth=2.5, label="Reddit (3-mo avg)")
         axes[4].set_yscale("log")
     axes[4].set_title("Active Users (Reddit)")
     axes[4].legend(loc="upper right")
@@ -119,7 +146,10 @@ def main():
 
     # 6. Active users (Voat)
     if "active_users_voat" in monthly.columns:
-        axes[5].plot(monthly["month_dt"], monthly["active_users_voat"], label="Voat", color="C1")
+        raw_data = monthly["active_users_voat"]
+        rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
+        axes[5].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
+        axes[5].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat (3-mo avg)")
     axes[5].set_title("Active Users (Voat)")
     axes[5].legend(loc="upper right")
     add_events(axes[5])
@@ -136,15 +166,15 @@ def main():
     )
 
     # 8. E-I Index (Voat only - newcomer/existing mixing)
-    plot_lines(
-        axes[7],
-        monthly,
-        [
-            ("Voat E-I", "ei_index"),
-        ],
-        "E-I Index (Voat)\nLower = Inward, Higher = Outward",
-    )
+    if "ei_index" in monthly.columns:
+        raw_data = monthly["ei_index"]
+        rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
+        axes[7].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
+        axes[7].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat E-I (3-mo avg)")
+    axes[7].set_title("E-I Index (Voat)\nLower = Inward, Higher = Outward")
     axes[7].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
+    axes[7].legend(loc="upper right")
+    add_events(axes[7])
 
     # Legends
     for ax in axes:

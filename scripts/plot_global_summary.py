@@ -36,9 +36,9 @@ EVENT_ALPHA = 0.15
 # Custom event labels using short names
 SHORT_EVENT_LABELS = {
     "A": "FPH",
-    "B": "GA",
-    "C": "TD",
-    "D": "PG",
+    "B": "PG",
+    "C": "GA",
+    "D": "TD",
 }
 
 
@@ -189,8 +189,8 @@ def main():
         heatmap_df = pd.read_csv(args.heatmap_file)
         # Pivot for heatmap: communities as rows, periods as columns
         heatmap_pivot = heatmap_df.pivot(index="community", columns="period", values="toxicity_diff")
-        # Order columns chronologically: A-D, D-B, B-C, C-end
-        period_order = ["A-D", "D-B", "B-C", "C-end"]
+        # Order columns chronologically: A-B, B-C, C-D, D-end
+        period_order = ["A-B", "B-C", "C-D", "D-end"]
         heatmap_pivot = heatmap_pivot[[col for col in period_order if col in heatmap_pivot.columns]]
 
     # Load newcomer degree dynamics data

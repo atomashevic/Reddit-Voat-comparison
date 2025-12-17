@@ -1,0 +1,39 @@
+Package C1: Hub-threshold sensitivity
+========================================================================
+Communities: funny, gaming, gifs, pics, technology, videos
+Hub fractions tested: 0.05, 0.1, 0.2
+
+funny:
+  top 5% hubs: newcomer hub share max=0.925, median=0.463; hub rate max=0.060; rate vs existing median=0.010, max=0.034
+  top 10% hubs: newcomer hub share max=0.963, median=0.495; hub rate max=0.141; rate vs existing median=0.028, max=0.073
+  top 20% hubs: newcomer hub share max=0.966, median=0.526; hub rate max=0.352; rate vs existing median=0.075, max=0.163
+
+gaming:
+  top 5% hubs: newcomer hub share max=0.941, median=0.562; hub rate max=0.069; rate vs existing median=0.018, max=0.106
+  top 10% hubs: newcomer hub share max=0.966, median=0.620; hub rate max=0.211; rate vs existing median=0.037, max=0.169
+  top 20% hubs: newcomer hub share max=0.953, median=0.645; hub rate max=1.000; rate vs existing median=0.076, max=0.211
+
+gifs:
+  top 5% hubs: newcomer hub share max=1.000, median=0.571; hub rate max=0.100; rate vs existing median=0.000, max=0.082
+  top 10% hubs: newcomer hub share max=0.927, median=0.692; hub rate max=0.215; rate vs existing median=0.010, max=0.100
+  top 20% hubs: newcomer hub share max=0.982, median=0.791; hub rate max=1.000; rate vs existing median=0.037, max=0.200
+
+pics:
+  top 5% hubs: newcomer hub share max=0.952, median=0.632; hub rate max=0.078; rate vs existing median=0.002, max=0.049
+  top 10% hubs: newcomer hub share max=0.974, median=0.778; hub rate max=0.232; rate vs existing median=0.017, max=0.080
+  top 20% hubs: newcomer hub share max=0.987, median=0.836; hub rate max=1.000; rate vs existing median=0.046, max=0.128
+
+technology:
+  top 5% hubs: newcomer hub share max=0.957, median=0.444; hub rate max=0.072; rate vs existing median=0.013, max=0.062
+  top 10% hubs: newcomer hub share max=0.958, median=0.517; hub rate max=0.183; rate vs existing median=0.046, max=0.110
+  top 20% hubs: newcomer hub share max=0.977, median=0.635; hub rate max=1.000; rate vs existing median=0.087, max=0.277
+
+videos:
+  top 5% hubs: newcomer hub share max=0.941, median=0.617; hub rate max=0.066; rate vs existing median=0.013, max=0.066
+  top 10% hubs: newcomer hub share max=0.967, median=0.658; hub rate max=0.236; rate vs existing median=0.037, max=0.131
+  top 20% hubs: newcomer hub share max=0.967, median=0.752; hub rate max=1.000; rate vs existing median=0.080, max=0.195
+
+Global (unweighted across communities):
+  top 5% hubs: newcomer hub share max=0.909, median=0.395; hub rate max=0.060; rate vs existing median=0.014, max=0.029
+  top 10% hubs: newcomer hub share max=0.935, median=0.448; hub rate max=0.158; rate vs existing median=0.033, max=0.059
+  top 20% hubs: newcomer hub share max=0.957, median=0.553; hub rate max=0.616; rate vs existing median=0.071, max=0.100

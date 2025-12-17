@@ -21,10 +21,10 @@ COMMUNITIES = ["funny", "gaming", "technology", "videos", "gifs", "pics"]
 
 # Event periods (in chronological order)
 EVENT_PERIODS = {
-    "A-D": (EVENTS["A"], EVENTS["D"]),      # FPH to Pizzagate
-    "D-B": (EVENTS["D"], EVENTS["B"]),      # Pizzagate to GA
-    "B-C": (EVENTS["B"], EVENTS["C"]),      # GA to TD
-    "C-end": (EVENTS["C"], pd.Timestamp("2020-12-31")),  # TD to end
+    "A-B": (EVENTS["A"], EVENTS["B"]),      # FPH to Pizzagate
+    "B-C": (EVENTS["B"], EVENTS["C"]),      # Pizzagate to GA
+    "C-D": (EVENTS["C"], EVENTS["D"]),      # GA to TD
+    "D-end": (EVENTS["D"], pd.Timestamp("2020-12-31")),  # TD to end
 }
 
 

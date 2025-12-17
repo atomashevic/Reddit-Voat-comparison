@@ -1,0 +1,12 @@
+Package C2: Rolling-tenure E-I sensitivity (tenure=6 months)
+========================================================================
+Communities: funny, gaming, gifs, pics, technology, videos
+
+funny: corr(event, rolling)=-0.104, pre‑GA mean=-0.232, post‑GA mean=-0.166
+gaming: corr(event, rolling)=-0.095, pre‑GA mean=-0.343, post‑GA mean=-0.143
+gifs: corr(event, rolling)=0.245, pre‑GA mean=-0.227, post‑GA mean=0.022
+pics: corr(event, rolling)=0.252, pre‑GA mean=-0.096, post‑GA mean=-0.025
+technology: corr(event, rolling)=-0.173, pre‑GA mean=-0.199, post‑GA mean=-0.087
+videos: corr(event, rolling)=-0.178, pre‑GA mean=-0.165, post‑GA mean=-0.067
+
+Global: corr(event, rolling)=-0.049, pre‑GA mean=-0.214, post‑GA mean=-0.078
