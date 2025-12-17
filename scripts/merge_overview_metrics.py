@@ -19,12 +19,12 @@ def load_monthly(path: Path, platform: str) -> pd.DataFrame:
     return df
 
 
-def load_reputation_data(backup_path: Path, platform: str, community: str) -> pd.DataFrame:
-    """Load and aggregate reputation from backup CP monthly reputation files."""
-    rep_path = backup_path / "results" / "reputation" / platform / "results" / f"{platform}_{community}_cp_monthly_reputation.csv"
+def load_reputation_data(results_path: Path, platform: str, community: str) -> pd.DataFrame:
+    """Load and aggregate reputation from results/reputation CP monthly reputation files."""
+    rep_path = results_path / "reputation" / platform / "results" / f"{platform}_{community}_cp_monthly_reputation.csv"
     if not rep_path.exists():
         # Try alternative location
-        rep_path = backup_path / "results" / "reputation" / community / platform / "results" / f"{platform}_{community}_cp_monthly_reputation.csv"
+        rep_path = results_path / "reputation" / community / platform / "results" / f"{platform}_{community}_cp_monthly_reputation.csv"
     if not rep_path.exists():
         return pd.DataFrame()
     
@@ -101,13 +101,13 @@ def main():
     parser.add_argument("--results-root", type=Path, required=True, help="results root dir")
     parser.add_argument("--compare-dir", type=Path, required=True, help="output dir for merged metrics")
     parser.add_argument("--output-dir", type=Path, help="ignored (legacy compatibility)")
-    parser.add_argument("--backup-root", type=Path, default=Path("backup"), help="backup directory with reputation data")
+    parser.add_argument("--results-root", type=Path, default=Path("results"), help="results directory with reputation data")
     args = parser.parse_args()
 
     community = args.community
     results_root = args.results_root
     compare_dir = args.compare_dir
-    backup_root = args.backup_root
+    results_root = args.results_root
 
     # Adjusted paths for new structure: results/{platform}/{community}/...
     reddit_monthly = results_root / "reddit" / community / f"reddit_{community}_monthly_aggregates.csv"
@@ -121,9 +121,9 @@ def main():
     r_df = load_monthly(reddit_monthly, "reddit")
     v_df = load_monthly(voat_monthly, "voat")
     
-    # Load reputation data from backup
-    r_rep = load_reputation_data(backup_root, "reddit", community)
-    v_rep = load_reputation_data(backup_root, "voat", community)
+    # Load reputation data from results
+    r_rep = load_reputation_data(results_root, "reddit", community)
+    v_rep = load_reputation_data(results_root, "voat", community)
     
     # Merge reputation into monthly data
     if not r_rep.empty:

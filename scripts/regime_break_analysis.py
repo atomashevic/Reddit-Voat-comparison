@@ -172,7 +172,7 @@ def load_community_frame(results_dir: Path, backup_root: Path, community: str) -
 
     # Reputation fallback: some monthly aggregates were built with --skip-reputation.
     if "reputation_mean" not in monthly.columns or monthly["reputation_mean"].notna().sum() == 0:
-        rep_df = load_backup_reputation(backup_root, "voat", community)
+        rep_df = load_reputation_data(args.results_dir, "voat", community)
         if not rep_df.empty:
             rep_df["month_dt"] = pd.to_datetime(rep_df["month"] + "-01", errors="coerce")
             if "reputation_mean" not in monthly.columns:
@@ -190,13 +190,12 @@ def load_community_frame(results_dir: Path, backup_root: Path, community: str) -
     return monthly
 
 
-def load_backup_reputation(backup_root: Path, platform: str, community: str) -> pd.DataFrame:
+def load_reputation_data(results_dir: Path, platform: str, community: str) -> pd.DataFrame:
     """Load and compute mean reputation from CP monthly reputation files in backup."""
     platform = platform.lower()
     community = community.lower()
     rep_path = (
-        backup_root
-        / "results"
+        results_dir
         / "reputation"
         / platform
         / "results"
@@ -204,8 +203,7 @@ def load_backup_reputation(backup_root: Path, platform: str, community: str) -> 
     )
     if not rep_path.exists():
         rep_path = (
-            backup_root
-            / "results"
+            results_dir
             / "reputation"
             / community
             / platform
@@ -482,7 +480,9 @@ def main() -> None:
     summary_lines.append(f"Metrics analyzed: {', '.join(metrics)}")
     summary_lines.append(f"Min segment length: {args.min_segment_months} months")
     summary_lines.append(f"Bootstrap iterations: {args.bootstrap_iterations} (seed={args.seed})")
-    summary_lines.append(f"Reference event (GA ban): {EVENTS['B'].date()} (month=2018-09)")
+    summary_lines.append(
+        f"Reference event (GA ban): {EVENTS['B'].date()} (month={EVENTS['B'].strftime('%Y-%m')})"
+    )
     summary_lines.append("")
 
     if results_df.empty:

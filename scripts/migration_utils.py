@@ -3,30 +3,61 @@
 Defines key event dates, metrics, and helper functions for loading data.
 """
 
-import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple
 
 import pandas as pd
 
 # Key Migration / Platform Events
-# A: FPH Ban (2015-06)
-# B: Pizzagate Ban (2016-11)
-# C: GreatAwakening Ban (2018-09)
-# D: The_Donald Ban (2020-06)
-EVENTS = {
-    "A": pd.Timestamp("2015-06-10"),
-    "B": pd.Timestamp("2016-11-23"),
-    "C": pd.Timestamp("2018-09-12"),
-    "D": pd.Timestamp("2020-06-29"),
+#
+# IMPORTANT: There are two competing "letter" conventions in this repo:
+#
+# - Legacy (analysis) letters: used by most regression/regime/E-I scripts.
+#     A = FPH ban        (2015-06-10)
+#     B = GA ban         (2018-09-12)
+#     C = The_Donald ban (2020-06-29)
+#     D = Pizzagate ban  (2016-11-23)
+#
+# - Chronological letters: used by some plotting/period-slicing utilities.
+#     A = FPH  (2015-06-10)
+#     B = PG   (2016-11-23)
+#     C = GA   (2018-09-12)
+#     D = TD   (2020-06-29)
+#
+# To avoid silent bugs, keep `EVENTS` as the *legacy* mapping (backwards-compatible),
+# and use `EVENTS_CHRONO` explicitly when you need A/B/C/D to be chronological.
+EVENTS_LEGACY = {
+    "A": pd.Timestamp("2015-06-10"),  # FPH
+    "B": pd.Timestamp("2018-09-12"),  # GreatAwakening
+    "C": pd.Timestamp("2020-06-29"),  # The_Donald
+    "D": pd.Timestamp("2016-11-23"),  # Pizzagate
 }
 
-EVENT_LABELS = {
+EVENT_LABELS_LEGACY = {
     "A": "FPH Ban",
-    "B": "Pizzagate Ban",
-    "C": "GA Ban",
-    "D": "TD Ban",
+    "B": "GA Ban",
+    "C": "TD Ban",
+    "D": "Pizzagate Ban",
 }
+
+# Chronological (period-slicing) mapping: FPH -> PG -> GA -> TD
+EVENTS_CHRONO = {
+    "A": EVENTS_LEGACY["A"],
+    "B": EVENTS_LEGACY["D"],
+    "C": EVENTS_LEGACY["B"],
+    "D": EVENTS_LEGACY["C"],
+}
+
+EVENT_LABELS_CHRONO = {
+    "A": EVENT_LABELS_LEGACY["A"],
+    "B": EVENT_LABELS_LEGACY["D"],
+    "C": EVENT_LABELS_LEGACY["B"],
+    "D": EVENT_LABELS_LEGACY["C"],
+}
+
+# Backwards-compatible defaults (legacy semantics)
+EVENTS = EVENTS_LEGACY
+EVENT_LABELS = EVENT_LABELS_LEGACY
 
 # Standard Metrics
 METRICS = [
@@ -68,8 +99,8 @@ def get_event_window(
     
     window = df[(df["month_dt"] >= start_date) & (df["month_dt"] <= end_date)].copy()
     
-    pre = window[window["month_dt"] < event_date]
-    post = window[window["month_dt"] >= event_date]
+    pre = window.loc[window["month_dt"] < event_date].copy()
+    post = window.loc[window["month_dt"] >= event_date].copy()
     
     return pre, post
 

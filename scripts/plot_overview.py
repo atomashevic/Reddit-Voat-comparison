@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 # Ensure repository root on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from scripts.migration_utils import EVENTS, EVENT_LABELS
+from scripts.migration_utils import EVENTS_CHRONO, EVENT_LABELS_CHRONO
 
 # Style constants (consistent with plot_global_summary.py)
 VOAT_COLOR = "#800080"   # Purple
@@ -20,9 +20,9 @@ def add_events(ax):
     """Add vertical event lines with clear labels."""
     ylim = ax.get_ylim()
     y_pos = ylim[0] + (ylim[1] - ylim[0]) * 0.98  # 98% up from bottom
-    for key, ts in EVENTS.items():
+    for key, ts in EVENTS_CHRONO.items():
         ax.axvline(ts, color="gray", linestyle="--", alpha=0.5, linewidth=0.8, zorder=1)
-        label = EVENT_LABELS.get(key, key)
+        label = EVENT_LABELS_CHRONO.get(key, key)
         ax.text(ts, y_pos, label, ha="center", va="top", fontsize=7, 
                 color="gray", rotation=0, bbox=dict(boxstyle="round,pad=0.3", 
                 facecolor="white", edgecolor="none", alpha=0.7))

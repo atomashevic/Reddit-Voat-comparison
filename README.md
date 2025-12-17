@@ -1,0 +1,100 @@
+# Reddit–Voat Deplatforming & Toxicity (MADOC) — Paper Reproduction Repo
+
+This repository contains the analysis code and **paper-ready figures** for:
+`paper/main.tex` — *“Reddit Deplatforming and Toxicity Dynamics on Generalist Voat Communities”* (Dec 2025).
+
+The repo also includes non-essential work under `backup/` that is **not required** to regenerate the paper figures
+except for **reputation parquet inputs** (see “Inputs” below).
+
+## Scripts used in the paper
+
+The paper includes **7 PNG figures**:
+
+- **Global summary**: `paper/figures/global/voat_global_summary.png`
+- **Community overviews (6)**:
+  - `paper/figures/compare/funny/funny_overview.png`
+  - `paper/figures/compare/gaming/gaming_overview.png`
+  - `paper/figures/compare/gifs/gifs_overview.png`
+  - `paper/figures/compare/pics/pics_overview.png`
+  - `paper/figures/compare/videos/videos_overview.png`
+  - `paper/figures/compare/technology/technology_overview.png`
+
+Tables are currently embedded directly in `paper/main.tex` (not generated from CSV).
+
+## One-command reproduction (regenerates all paper figures)
+
+From repo root:
+
+```bash
+bash scripts/run_all_pipelines.sh
+```
+
+This produces/updates:
+
+- `paper/figures/global/voat_global_summary.png`
+- `paper/figures/compare/*/*_overview.png`
+- Intermediate CSVs under `results/` (monthly metrics, partitions, global aggregates)
+
+## Inputs (what must exist)
+
+### Required data
+
+Large MADOC Parquet files:
+
+- `data/reddit_<community>_madoc.parquet`
+- `data/voat_<community>_madoc.parquet`
+
+where `<community>` is one of:
+`funny gaming technology videos gifs pics`
+
+
+Available at: https://zenodo.org/records/14637314 (please cite this record if you use these data in your research)
+
+### Required network edge lists
+
+Monthly edge lists under:
+
+- `results/networks/reddit/<community>_monthly/*.txt`
+- `results/networks/voat/<community>_monthly/*.txt`
+
+### Reputation data (required for analysis)
+
+The pipeline requires **daily reputation scores** computed using the Dynamic Interaction-Based Reputation Model (DIBRM). These large files (~400GB total) are too big for GitHub.
+
+**Generate reputation files:**
+```bash
+# Process all communities
+bash scripts/dynamical_reputation/run_reputation_batch.sh
+
+# Or process individual communities
+python scripts/dynamical_reputation/dynamical_reputation_hybrid.py \
+  --input data/reddit_funny_madoc.parquet \
+  --platform reddit \
+  --community funny \
+  --output-dir results/reputation \
+  --output-format parquet
+```
+
+**Expected locations:**
+- `results/reputation/<community>/<platform>/results/*_user_daily_reputation.parquet`
+
+**Algorithm:** Exponential decay (β=0.999) with streak-dependent increments between user activities.
+
+If reputation files are missing, the pipeline runs but reputation plots appear blank.
+
+## Outputs (where to look)
+
+- **Paper-ready figures**: `paper/figures/`
+- **Community-level results**: `results/reddit/<community>/`, `results/voat/<community>/`, `results/compare/<community>/`
+- **Global aggregates**: `results/global/`
+- **Robustness / supporting analyses**: `results/basic/compare/results/`
+
+## Repo map (minimal)
+
+- `paper/`: LaTeX manuscript + paper figures
+- `scripts/`: analysis pipeline scripts
+- `results/`: derived CSV/Parquet outputs (large artifacts are gitignored)
+- `data/`: large MADOC Parquet inputs (gitignored)
+- `backup/`: historical pipelines (gitignored)
+
+

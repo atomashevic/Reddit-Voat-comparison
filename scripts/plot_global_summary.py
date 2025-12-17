@@ -24,7 +24,7 @@ import seaborn as sns
 
 # Ensure repository root on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from scripts.migration_utils import EVENTS, EVENT_LABELS, newcomer_label_for_month
+from scripts.migration_utils import EVENTS_CHRONO, newcomer_label_for_month
 
 # Style
 VOAT_COLOR = "#800080"  # Purple
@@ -149,7 +149,7 @@ def add_events_band(ax):
     """Add vertical bands for events with clear labels."""
     ylim = ax.get_ylim()
     y_pos = ylim[0] + (ylim[1] - ylim[0]) * 0.98
-    for key, date in EVENTS.items():
+    for key, date in EVENTS_CHRONO.items():
         # Draw line
         ax.axvline(date, color=EVENT_COLOR, linestyle="--", alpha=0.4, linewidth=0.8, zorder=1)
         # Add label at top with background - use short labels

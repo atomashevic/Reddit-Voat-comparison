@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compute q75 (75th percentile) toxicity time series from user-level data.
+"""Compute q90 (90th percentile) toxicity time series from user-level data.
 
-Computes monthly 75th percentile toxicity across all users for each platform,
+Computes monthly 90th percentile toxicity across all users for each platform,
 aggregated across all communities.
 """
 
@@ -27,8 +27,8 @@ os.environ.setdefault("ARROW_NUM_THREADS", "1")
 COMMUNITIES = ["funny", "gaming", "technology", "videos", "gifs", "pics"]
 
 
-def compute_monthly_q75(parquet_path: Path) -> pd.DataFrame:
-    """Compute monthly 75th percentile toxicity from user-level parquet file."""
+def compute_monthly_q90(parquet_path: Path) -> pd.DataFrame:
+    """Compute monthly 90th percentile toxicity from user-level parquet file."""
     if not parquet_path.exists():
         logging.warning(f"File not found: {parquet_path}")
         return pd.DataFrame()
@@ -45,14 +45,14 @@ def compute_monthly_q75(parquet_path: Path) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
     
-    # Compute 75th percentile per month
-    q75 = df.groupby("month")["mean_toxicity"].quantile(0.75).reset_index()
-    q75.columns = ["month", "toxicity_q75"]
+    # Compute 90th percentile per month
+    q90 = df.groupby("month")["mean_toxicity"].quantile(0.90).reset_index()
+    q90.columns = ["month", "toxicity_q90"]
     
     del df
     gc.collect()
     
-    return q75
+    return q90
 
 
 def main():
@@ -75,19 +75,19 @@ def main():
         
         # Reddit
         reddit_path = args.results_root / "reddit" / community / f"reddit_{community}_user_month_metrics.parquet"
-        reddit_q75 = compute_monthly_q75(reddit_path)
-        if not reddit_q75.empty:
-            reddit_q75["community"] = community
-            reddit_q75["platform"] = "reddit"
-            all_reddit.append(reddit_q75)
+        reddit_q90 = compute_monthly_q90(reddit_path)
+        if not reddit_q90.empty:
+            reddit_q90["community"] = community
+            reddit_q90["platform"] = "reddit"
+            all_reddit.append(reddit_q90)
         
         # Voat
         voat_path = args.results_root / "voat" / community / f"voat_{community}_user_month_metrics.parquet"
-        voat_q75 = compute_monthly_q75(voat_path)
-        if not voat_q75.empty:
-            voat_q75["community"] = community
-            voat_q75["platform"] = "voat"
-            all_voat.append(voat_q75)
+        voat_q90 = compute_monthly_q90(voat_path)
+        if not voat_q90.empty:
+            voat_q90["community"] = community
+            voat_q90["platform"] = "voat"
+            all_voat.append(voat_q90)
     
     if not all_reddit and not all_voat:
         logging.error("No data loaded")
@@ -102,12 +102,12 @@ def main():
     
     full_df = pd.concat(all_data, ignore_index=True)
     
-    # Aggregate across communities: simple average of q75 per platform per month
+    # Aggregate across communities: simple average of q90 per platform per month
     # (weighted average would require user counts which we don't have easily here)
-    global_q75 = full_df.groupby(["platform", "month"])["toxicity_q75"].mean().reset_index()
+    global_q90 = full_df.groupby(["platform", "month"])["toxicity_q90"].mean().reset_index()
     
     # Pivot to wide format
-    wide = global_q75.pivot(index="month", columns="platform", values="toxicity_q75").reset_index()
+    wide = global_q90.pivot(index="month", columns="platform", values="toxicity_q90").reset_index()
     wide.columns.name = None
     
     # Ensure month is string

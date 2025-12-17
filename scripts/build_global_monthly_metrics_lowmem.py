@@ -18,6 +18,8 @@ import duckdb
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("ARROW_NUM_THREADS", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -53,17 +55,29 @@ def find_reputation_file(reputation_dir: Path, platform: str, community: str) ->
     plat = platform.lower()
     comm = community.lower()
 
-    candidates = [
-        reputation_dir / comm / plat / "results" / f"{plat}_{comm}_user_daily_reputation.parquet",
-        reputation_dir / plat / "results" / f"{plat}_{comm}_user_daily_reputation.parquet",
-    ]
+    def _candidates(base: Path) -> list[Path]:
+        return [
+            base / comm / plat / "results" / f"{plat}_{comm}_user_daily_reputation.parquet",
+            base / plat / "results" / f"{plat}_{comm}_user_daily_reputation.parquet",
+        ]
 
-    for path in candidates:
+    # 1) Primary location (default: results/reputation)
+    for path in _candidates(reputation_dir):
         if path.exists():
             logging.info(f"Found reputation file: {path}")
             return path
 
-    logging.warning(f"No reputation file found for {platform}/{community}")
+    # 2) Reputation from results/reputation/ (moved from backup/)
+    rep_dir = REPO_ROOT / "results" / "reputation"
+    if rep_dir.exists():
+        for path in _candidates(rep_dir):
+            if path.exists():
+                logging.info(f"Found reputation file (backup fallback): {path}")
+                return path
+
+    logging.warning(
+        f"No reputation file found for {platform}/{community} (checked {reputation_dir} and {rep_dir})"
+    )
     return None
 
 

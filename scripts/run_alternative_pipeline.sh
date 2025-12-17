@@ -27,7 +27,12 @@ fi
 
 # Unified output directory
 RESULTS_ROOT="results"
-FIGURES_ROOT="figures"
+# Prefer writing figures where the LaTeX paper expects them.
+if [[ -d "paper" ]]; then
+    FIGURES_ROOT="paper/figures"
+else
+    FIGURES_ROOT="figures"
+fi
 
 RES_REDDIT="${RESULTS_ROOT}/reddit/${COMMUNITY}"
 RES_VOAT="${RESULTS_ROOT}/voat/${COMMUNITY}"
@@ -37,10 +42,7 @@ FIG_COMPARE="${FIGURES_ROOT}/compare/${COMMUNITY}"
 # Ensure directories exist
 mkdir -p "$RES_REDDIT" "$RES_VOAT" "$RES_COMPARE" "$FIG_COMPARE"
 
-# Legacy results directory (for reuse from previous runs)
-BASIC_ROOT="backup/results/basic/${COMMUNITY}"
-BASIC_REDDIT="${BASIC_ROOT}/reddit/results"
-BASIC_VOAT="${BASIC_ROOT}/voat/results"
+# NOTE: legacy BASIC_ROOT variables removed (unused in current pipeline).
 
 # Bootstrap parameters (only for toxicity/sentiment bands)
 BOOTSTRAP_ITERATIONS=40

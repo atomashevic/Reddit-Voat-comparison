@@ -1,10 +1,13 @@
 # Project-specific
-AGENTS.md
 tmp/
-notes/
 .claude/
+
+# Local-only / archival material (kept in working tree but not versioned)
 backups/
 backup/
+
+# Paper repository (separate git repo)
+paper/
 
 # Python
 .venv/
@@ -19,33 +22,39 @@ __pycache__/
 dist/
 build/
 
-# Large data directories
+# Large data / derived edge lists (do not commit)
 data/
 networks/
 
 # Results and Figures
-# Exclude Parquet files (too large for GitHub), but allow CSVs, figures, and other outputs
+# Only ignore files that are way too big for GitHub (>50MB)
+# This allows most CSVs and reasonable-sized figures to be tracked
 results/**/*.parquet
+results/reputation/**/*.parquet
+# Large PDF files
+results/**/*.pdf
 
-# LaTeX build artifacts
+# LaTeX build artifacts (keep sources tracked)
 *.aux
 *.log
 *.out
+*.toc
+*.nav
+*.snm
+texput.log
+
+# PDFs are typically built artifacts; keep if you intentionally add exceptions
 *.pdf
-*.tex
-!presentation.md
 
 # Presentation files
 *.pptx
 *.ppt
 
-# Documentation files
-CLAUDE.md
-ALTERNATIVE_PIPELINE_README.md
-reddit-voat-behavior-metrics.md
-reddit-voat-networks.md
-research-summary.md
+# Notes: keep markdown/bib tracked, ignore embedded PDFs
+notes/**/*.pdf
 
-paper/
+# Presentations: keep sources tracked, ignore LaTeX build outputs above
+results/beamer_presentation.pdf
 
-results/beamer*
+# Agents file
+AGENTS.md 

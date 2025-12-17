@@ -14,17 +14,17 @@ import numpy as np
 
 # Ensure repository root on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from scripts.migration_utils import EVENTS
+from scripts.migration_utils import EVENTS_CHRONO
 
 # Communities to analyze
 COMMUNITIES = ["funny", "gaming", "technology", "videos", "gifs", "pics"]
 
 # Event periods (in chronological order)
 EVENT_PERIODS = {
-    "A-B": (EVENTS["A"], EVENTS["B"]),      # FPH to Pizzagate
-    "B-C": (EVENTS["B"], EVENTS["C"]),      # Pizzagate to GA
-    "C-D": (EVENTS["C"], EVENTS["D"]),      # GA to TD
-    "D-end": (EVENTS["D"], pd.Timestamp("2020-12-31")),  # TD to end
+    "A-B": (EVENTS_CHRONO["A"], EVENTS_CHRONO["B"]),      # FPH to Pizzagate
+    "B-C": (EVENTS_CHRONO["B"], EVENTS_CHRONO["C"]),      # Pizzagate to GA
+    "C-D": (EVENTS_CHRONO["C"], EVENTS_CHRONO["D"]),      # GA to TD
+    "D-end": (EVENTS_CHRONO["D"], pd.Timestamp("2020-12-31")),  # TD to end
 }
 
 
