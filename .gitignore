@@ -53,8 +53,12 @@ texput.log
 # Notes: keep markdown/bib tracked, ignore embedded PDFs
 notes/**/*.pdf
 
-# Presentations: keep sources tracked, ignore LaTeX build outputs above
+# Presentations: ignore beamer presentation files (too large / local only)
 results/beamer_presentation.pdf
+results/beamer_presentation.tex
+
+# Reputation results (too large for GitHub)
+results/reputation/
 
 # Agents file
 AGENTS.md 
