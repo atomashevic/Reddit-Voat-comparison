@@ -1,31 +1,63 @@
 #!/usr/bin/env python3
-"""Plot single 8-panel overview for a community with key metrics."""
+"""Plot single 7-panel overview for a community with key metrics.
+
+Panels (sentiment moved to SI):
+1. Mean Toxicity (Voat vs Reddit)
+2. Mean Reputation (with 4.5 threshold)
+3. Mean Degree
+4. Active Users (Reddit, log scale)
+5. Active Users (Voat)
+6. Degree Assortativity
+7. E-I Index
+8. Summary statistics text
+"""
 
 import argparse
 from pathlib import Path
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Ensure repository root on path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from scripts.migration_utils import EVENTS_CHRONO, EVENT_LABELS_CHRONO
 
-# Style constants (consistent with plot_global_summary.py)
-VOAT_COLOR = "#800080"   # Purple
-REDDIT_COLOR = "#ff7f0e" # Orange
+# Style constants - Okabe-Ito colorblind-safe palette (consistent with plot_global_summary.py)
+VOAT_COLOR = "#0072B2"      # Blue
+REDDIT_COLOR = "#E69F00"    # Orange
+EVENT_COLOR = "#333333"
+
+# Short event labels
+SHORT_EVENT_LABELS = {
+    "A": "FPH",
+    "B": "PG",
+    "C": "GA",
+    "D": "TD",
+}
 
 
-def add_events(ax):
-    """Add vertical event lines with clear labels."""
+def add_panel_label(ax, label, fontsize=12):
+    """Add bold panel label (1), (2), etc. in upper-left corner."""
+    ax.text(-0.12, 1.08, f'({label})', transform=ax.transAxes,
+            fontsize=fontsize, fontweight='bold', va='top', ha='left')
+
+
+def add_events(ax, label_above=True):
+    """Add vertical event lines with improved visibility."""
     ylim = ax.get_ylim()
-    y_pos = ylim[0] + (ylim[1] - ylim[0]) * 0.98  # 98% up from bottom
     for key, ts in EVENTS_CHRONO.items():
-        ax.axvline(ts, color="gray", linestyle="--", alpha=0.5, linewidth=0.8, zorder=1)
-        label = EVENT_LABELS_CHRONO.get(key, key)
-        ax.text(ts, y_pos, label, ha="center", va="top", fontsize=7, 
-                color="gray", rotation=0, bbox=dict(boxstyle="round,pad=0.3", 
-                facecolor="white", edgecolor="none", alpha=0.7))
+        # Thicker, more visible lines
+        ax.axvline(ts, color=EVENT_COLOR, linestyle="--",
+                   alpha=0.6, linewidth=1.5, zorder=1)
+
+        # Label ABOVE the plot area
+        if label_above:
+            label = SHORT_EVENT_LABELS.get(key, key)
+            ax.annotate(label, xy=(ts, ylim[1]), xytext=(0, 8),
+                       textcoords='offset points', ha='center', va='bottom',
+                       fontsize=9, fontweight='bold', color=EVENT_COLOR,
+                       annotation_clip=False)
 
 
 def maybe_band(ax, df, col_base):
@@ -78,16 +110,19 @@ def main():
 
     monthly = pd.read_csv(args.monthly_file)
     monthly["month_dt"] = pd.to_datetime(monthly["month"] + "-01")
-    
+
     # Filter date range (default: September 2015 to December 2020)
     start_dt = pd.to_datetime(args.start_date)
     end_dt = pd.to_datetime(args.end_date)
     monthly = monthly[(monthly["month_dt"] >= start_dt) & (monthly["month_dt"] <= end_dt)].copy()
 
-    fig, axes = plt.subplots(4, 2, figsize=(14, 16), sharex=True)
+    # Create 4x2 grid (sentiment removed - moved to SI)
+    fig, axes = plt.subplots(4, 2, figsize=(14, 18), sharex=True)
     axes = axes.flatten()
 
-    # 1. Mean toxicity with bands
+    # =========================================================================
+    # Panel 1: Mean Toxicity (Voat vs Reddit)
+    # =========================================================================
     plot_lines(
         axes[0],
         monthly,
@@ -95,25 +130,15 @@ def main():
             ("Reddit", "toxicity_mean_reddit"),
             ("Voat", "toxicity_mean_voat"),
         ],
-        "Mean Toxicity",
+        "Mean Toxicity (Voat vs Reddit)",
     )
     maybe_band(axes[0], monthly, "toxicity_mean")
 
-    # 2. Mean sentiment (VADER) with bands
+    # =========================================================================
+    # Panel 2: Mean Reputation (with 4.5 sustainability threshold)
+    # =========================================================================
     plot_lines(
         axes[1],
-        monthly,
-        [
-            ("Reddit", "vader_mean_reddit"),
-            ("Voat", "vader_mean_voat"),
-        ],
-        "Mean Sentiment (VADER)",
-    )
-    maybe_band(axes[1], monthly, "vader_mean")
-
-    # 3. Mean reputation
-    plot_lines(
-        axes[2],
         monthly,
         [
             ("Reddit", "reputation_mean_reddit"),
@@ -121,10 +146,15 @@ def main():
         ],
         "Mean Reputation",
     )
+    # Add 4.5 sustainability threshold line
+    axes[1].axhline(4.5, color='#D62728', linestyle='--', linewidth=1.5,
+                    alpha=0.7, label='Threshold (4.5)', zorder=2)
 
-    # 4. Mean degree
+    # =========================================================================
+    # Panel 3: Mean Degree
+    # =========================================================================
     plot_lines(
-        axes[3],
+        axes[2],
         monthly,
         [
             ("Reddit", "mean_degree_reddit"),
@@ -133,30 +163,36 @@ def main():
         "Mean Degree",
     )
 
-    # 5. Active users (Reddit) - use log scale due to scale difference
+    # =========================================================================
+    # Panel 4: Active Users (Reddit) - log scale
+    # =========================================================================
     if "active_users_reddit" in monthly.columns:
         raw_data = monthly["active_users_reddit"]
         rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
-        axes[4].plot(monthly["month_dt"], raw_data, color=REDDIT_COLOR, linewidth=1, alpha=0.3)
-        axes[4].plot(monthly["month_dt"], rolling_data, color=REDDIT_COLOR, linewidth=2.5, label="Reddit (3-mo avg)")
-        axes[4].set_yscale("log")
-    axes[4].set_title("Active Users (Reddit)")
-    axes[4].legend(loc="upper right")
-    add_events(axes[4])
+        axes[3].plot(monthly["month_dt"], raw_data, color=REDDIT_COLOR, linewidth=1, alpha=0.3)
+        axes[3].plot(monthly["month_dt"], rolling_data, color=REDDIT_COLOR, linewidth=2.5, label="Reddit (3-mo avg)")
+        axes[3].set_yscale("log")
+    axes[3].set_title("Active Users (Reddit)")
+    axes[3].legend(loc="upper right", fontsize=8)
+    add_events(axes[3])
 
-    # 6. Active users (Voat)
+    # =========================================================================
+    # Panel 5: Active Users (Voat)
+    # =========================================================================
     if "active_users_voat" in monthly.columns:
         raw_data = monthly["active_users_voat"]
         rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
-        axes[5].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
-        axes[5].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat (3-mo avg)")
-    axes[5].set_title("Active Users (Voat)")
-    axes[5].legend(loc="upper right")
-    add_events(axes[5])
+        axes[4].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
+        axes[4].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat (3-mo avg)")
+    axes[4].set_title("Active Users (Voat)")
+    axes[4].legend(loc="upper right", fontsize=8)
+    add_events(axes[4])
 
-    # 7. Degree assortativity
+    # =========================================================================
+    # Panel 6: Degree Assortativity
+    # =========================================================================
     plot_lines(
-        axes[6],
+        axes[5],
         monthly,
         [
             ("Reddit", "degree_assortativity_reddit"),
@@ -164,31 +200,85 @@ def main():
         ],
         "Degree Assortativity",
     )
+    axes[5].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
 
-    # 8. E-I Index (Voat only - newcomer/existing mixing)
+    # =========================================================================
+    # Panel 7: E-I Index (Voat only)
+    # =========================================================================
     if "ei_index" in monthly.columns:
         raw_data = monthly["ei_index"]
         rolling_data = raw_data.rolling(window=3, center=True, min_periods=1).mean()
-        axes[7].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
-        axes[7].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat E-I (3-mo avg)")
-    axes[7].set_title("E-I Index (Voat)\nLower = Inward, Higher = Outward")
-    axes[7].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
-    axes[7].legend(loc="upper right")
-    add_events(axes[7])
+        axes[6].plot(monthly["month_dt"], raw_data, color=VOAT_COLOR, linewidth=1, alpha=0.3)
+        axes[6].plot(monthly["month_dt"], rolling_data, color=VOAT_COLOR, linewidth=2.5, label="Voat E-I (3-mo avg)")
+    axes[6].set_title("E-I Index (Voat)")
+    axes[6].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
+    axes[6].legend(loc="upper right", fontsize=8)
+    add_events(axes[6])
 
-    # Legends
-    for ax in axes:
+    # =========================================================================
+    # Panel 8: Summary Statistics (text panel)
+    # =========================================================================
+    axes[7].axis('off')  # Hide axes for text panel
+
+    # Compute summary statistics
+    stats_text = f"Community: {args.community.upper()}\n\n"
+
+    if "toxicity_mean_voat" in monthly.columns and "toxicity_mean_reddit" in monthly.columns:
+        voat_tox = monthly["toxicity_mean_voat"].mean()
+        reddit_tox = monthly["toxicity_mean_reddit"].mean()
+        tox_ratio = voat_tox / reddit_tox if reddit_tox > 0 else np.nan
+        stats_text += f"Mean Toxicity:\n  Voat: {voat_tox:.3f}\n  Reddit: {reddit_tox:.3f}\n  Ratio: {tox_ratio:.2f}×\n\n"
+
+    if "active_users_voat" in monthly.columns:
+        voat_users_mean = monthly["active_users_voat"].mean()
+        voat_users_max = monthly["active_users_voat"].max()
+        stats_text += f"Voat Active Users:\n  Mean: {voat_users_mean:.0f}\n  Max: {voat_users_max:.0f}\n\n"
+
+    if "ei_index" in monthly.columns:
+        ei_mean = monthly["ei_index"].mean()
+        ei_std = monthly["ei_index"].std()
+        stats_text += f"E-I Index:\n  Mean: {ei_mean:.3f}\n  Std: {ei_std:.3f}\n"
+
+    axes[7].text(0.1, 0.9, stats_text, transform=axes[7].transAxes,
+                 fontsize=11, verticalalignment='top', fontfamily='monospace',
+                 bbox=dict(boxstyle='round', facecolor='#f0f0f0', edgecolor='gray', alpha=0.8))
+    axes[7].set_title("Summary Statistics")
+
+    # =========================================================================
+    # Add panel labels (1)-(8)
+    # =========================================================================
+    for i, ax in enumerate(axes):
+        add_panel_label(ax, i + 1)
+
+    # =========================================================================
+    # Legends and formatting
+    # =========================================================================
+    for ax in axes[:7]:  # Skip text panel
         if ax.get_legend_handles_labels()[0]:
-            ax.legend()
+            ax.legend(loc="best", fontsize=8, frameon=True,
+                     facecolor='white', edgecolor='none', framealpha=0.8)
 
-    for ax in axes[-2:]:
+    for ax in axes[5:7]:  # Bottom row x-labels
         ax.set_xlabel("Month")
 
     plt.tight_layout()
+
+    # =========================================================================
+    # Save - publication quality (300 DPI + PDF)
+    # =========================================================================
     args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    # PNG at 300 DPI
     out_path = args.output_dir / f"{args.community}_overview.png"
-    plt.savefig(out_path, dpi=150)
+    plt.savefig(out_path, dpi=300, bbox_inches="tight",
+                facecolor='white', edgecolor='none')
     print(f"Wrote {out_path}")
+
+    # PDF for vector quality
+    out_path_pdf = args.output_dir / f"{args.community}_overview.pdf"
+    plt.savefig(out_path_pdf, bbox_inches="tight",
+                facecolor='white', edgecolor='none')
+    print(f"Wrote {out_path_pdf}")
 
 
 if __name__ == "__main__":

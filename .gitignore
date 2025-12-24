@@ -1,6 +1,7 @@
 # Project-specific
 tmp/
 .claude/
+tmp_*.png
 
 # Local-only / archival material (kept in working tree but not versioned)
 backups/
@@ -31,6 +32,8 @@ networks/
 # This allows most CSVs and reasonable-sized figures to be tracked
 results/**/*.parquet
 results/reputation/**/*.parquet
+# Figure exports (PDFs not shared)
+figures/**/*.pdf
 # Large PDF files
 results/**/*.pdf
 
@@ -43,8 +46,6 @@ results/**/*.pdf
 *.snm
 texput.log
 
-# PDFs are typically built artifacts; keep if you intentionally add exceptions
-*.pdf
 
 # Presentation files
 *.pptx
