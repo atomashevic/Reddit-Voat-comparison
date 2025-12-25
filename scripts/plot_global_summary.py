@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import pandas as pd
 import matplotlib.dates as mdates
 import numpy as np
@@ -26,15 +27,21 @@ import seaborn as sns
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from scripts.migration_utils import EVENTS_CHRONO, newcomer_label_for_month
 
-# Style - Okabe-Ito colorblind-safe palette
-VOAT_COLOR = "#0072B2"      # Blue (was purple)
-REDDIT_COLOR = "#E69F00"    # Orange (keep)
-TOXICITY_COLOR = "#CC79A7"  # Reddish purple
+# Style - Three-color scheme per colleague feedback (Saška/Ana):
+# - Voat coral for whole-community metrics (panels 1,3,6,7,8)
+# - Newcomer teal for newcomer-specific (panels 2,4,5)
+# - Existing dark purple for existing users (panel 2 only)
+VOAT_COLOR = "#F46036"      # Coral/orange-red
+NEWCOMER_COLOR = "#1B998B"  # Teal/green
+EXISTING_COLOR = "#2E294E"  # Dark purple/navy
 EVENT_COLOR = "#333333"
 EVENT_ALPHA = 0.15
-NEWCOMER_COLOR = "#D55E00"  # Vermillion
-EXISTING_COLOR = "#56B4E9"  # Sky blue
-REPUTATION_COLOR = "#009E73" # Bluish green
+
+# Custom sequential colormap: white → Voat coral (for heatmap)
+VOAT_CMAP = mcolors.LinearSegmentedColormap.from_list(
+    'voat_coral_seq',
+    ['#FFFFFF', '#FDE4DC', '#FAB8A4', '#F46036', '#B8401F']
+)
 HLINE_STYLE = {
     "color": "gray",
     "linestyle": "--",
@@ -374,9 +381,9 @@ def main():
     # =========================================================================
     if "reputation_mean_voat_agg" in df.columns:
         ax7.plot(df["month_dt"], df["reputation_mean_voat_agg"],
-                color=REPUTATION_COLOR, linewidth=1, alpha=0.3)
+                color=VOAT_COLOR, linewidth=1, alpha=0.3)
         ax7.plot(df_rolling["month_dt"], df_rolling["reputation_mean_voat_agg_roll"],
-                color=REPUTATION_COLOR, linewidth=2.5, label="Mean (3-mo avg)")
+                color=VOAT_COLOR, linewidth=2.5, label="Mean (3-mo avg)")
         # Add 4.5 sustainability threshold line (per plan)
         ax7.axhline(4.5, **HLINE_STYLE,
                    label="Sustainability threshold (4.5)", zorder=2)
@@ -397,8 +404,8 @@ def main():
     # PANEL 8: Mean Toxicity (Voat only)
     # =========================================================================
     if "toxicity_mean_voat" in df.columns:
-        ax8.plot(df["month_dt"], df["toxicity_mean_voat"], color=TOXICITY_COLOR, linewidth=1, alpha=0.3)
-        ax8.plot(df_rolling["month_dt"], df_rolling["toxicity_mean_voat_roll"], color=TOXICITY_COLOR, linewidth=2.5, label="Voat (3-mo avg)")
+        ax8.plot(df["month_dt"], df["toxicity_mean_voat"], color=VOAT_COLOR, linewidth=1, alpha=0.3)
+        ax8.plot(df_rolling["month_dt"], df_rolling["toxicity_mean_voat_roll"], color=VOAT_COLOR, linewidth=2.5, label="Voat (3-mo avg)")
 
     # Reddit toxicity removed per user request
     # if reddit_tox is not None and not reddit_tox.empty:
@@ -431,8 +438,7 @@ def main():
             annot=True,
             annot_kws={"size": 11, "weight": "bold"},
             fmt=".2f",
-            cmap="RdYlBu_r",  # Better diverging colormap (colorblind-friendly)
-            center=0,
+            cmap=VOAT_CMAP,  # Sequential purple (Voat-branded)
             cbar_kws=cbar_kws,
             linewidths=2,
             linecolor="white",
