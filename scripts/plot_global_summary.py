@@ -235,23 +235,23 @@ def main():
             degree_df["degree_share_ratio_roll"] = degree_df["degree_share_ratio"].rolling(
                 window=3, center=True, min_periods=1).mean()
 
-    # Create figure with 9 panels (5x2 grid) - logical narrative flow
-    # Row 1: User activity, Row 2: Network structure, Row 3-4: Outcomes, Row 5: Summary
+    # Create figure with 9 panels (5x4 grid) - logical narrative flow
+    # Row 1: User activity, Row 2: Network structure, Row 3-4: Outcomes, Row 5: Heatmap (centered)
     fig = plt.figure(figsize=(12, 22))  # Taller for 5 rows
-    gs = fig.add_gridspec(5, 2, height_ratios=[1, 1, 1, 1, 0.8], hspace=0.4, wspace=0.3)
+    gs = fig.add_gridspec(5, 4, height_ratios=[1, 1, 1, 1, 0.8], hspace=0.4, wspace=0.3)
 
     # Panel assignments in logical order (per plan):
     # 1: Total Active Users, 2: Users by Status, 3: E-I Index, 4: Hub Rate
-    # 5: Degree Ratio, 6: Assortativity, 7: Reputation, 8: Toxicity, 9: Heatmap
-    ax1 = fig.add_subplot(gs[0, 0])  # (1) Total Active Users (NEW)
-    ax2 = fig.add_subplot(gs[0, 1])  # (2) Active Users by Status
-    ax3 = fig.add_subplot(gs[1, 0])  # (3) E-I Index
-    ax4 = fig.add_subplot(gs[1, 1])  # (4) Newcomer Hub Rate
-    ax5 = fig.add_subplot(gs[2, 0])  # (5) Degree Share / Pop Share
-    ax6 = fig.add_subplot(gs[2, 1])  # (6) Degree Assortativity
-    ax7 = fig.add_subplot(gs[3, 0])  # (7) Mean Reputation (with 4.5 line)
-    ax8 = fig.add_subplot(gs[3, 1])  # (8) Mean Toxicity
-    ax9 = fig.add_subplot(gs[4, :])  # (9) Event-Period Heatmap (full width)
+    # 5: Degree Ratio, 6: Assortativity, 7: Reputation, 8: Toxicity, 9: Heatmap (centered)
+    ax1 = fig.add_subplot(gs[0, 0:2])  # (1) Total Active Users
+    ax2 = fig.add_subplot(gs[0, 2:4])  # (2) Active Users by Status
+    ax3 = fig.add_subplot(gs[1, 0:2])  # (3) E-I Index
+    ax4 = fig.add_subplot(gs[1, 2:4])  # (4) Newcomer Hub Rate
+    ax5 = fig.add_subplot(gs[2, 0:2])  # (5) Degree Share / Pop Share
+    ax6 = fig.add_subplot(gs[2, 2:4])  # (6) Degree Assortativity
+    ax7 = fig.add_subplot(gs[3, 0:2])  # (7) Mean Reputation (with 4.5 line)
+    ax8 = fig.add_subplot(gs[3, 2:4])  # (8) Mean Toxicity
+    ax9 = fig.add_subplot(gs[4, 1:3])  # (9) Event-Period Heatmap (centered between columns)
     
     # Compute 3-month rolling means
     df_rolling = df.copy()

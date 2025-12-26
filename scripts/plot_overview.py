@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Plot single 7-panel overview for a community with key metrics.
+"""Plot 7-panel overview for a community with key metrics.
 
-Panels (sentiment moved to SI):
+Panels (consistent with Figure 1 styling):
 1. Mean Toxicity (Voat vs Reddit)
 2. Mean Reputation (with 4.5 threshold)
 3. Mean Degree
 4. Active Users (Reddit, log scale)
 5. Active Users (Voat)
 6. Degree Assortativity
-7. E-I Index
-8. Summary statistics text
+7. E-I Index (centered)
+
+Event labels positioned at bottom-right of each panel (matching Figure 1).
 """
 
 import argparse
@@ -23,10 +24,11 @@ import numpy as np
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from scripts.migration_utils import EVENTS_CHRONO, EVENT_LABELS_CHRONO
 
-# Style constants - Okabe-Ito colorblind-safe palette (consistent with plot_global_summary.py)
-VOAT_COLOR = "#0072B2"      # Blue
-REDDIT_COLOR = "#E69F00"    # Orange
+# Style constants - consistent with plot_global_summary.py (Figure 1)
+VOAT_COLOR = "#F46036"      # Coral/orange-red (same as Figure 1)
+REDDIT_COLOR = "#1B998B"    # Teal/green
 EVENT_COLOR = "#333333"
+EVENT_LABEL_OFFSET_X = 14   # Horizontal offset for event labels (same as Figure 1)
 
 # Short event labels
 SHORT_EVENT_LABELS = {
@@ -44,18 +46,23 @@ def add_panel_label(ax, label, fontsize=12):
 
 
 def add_events(ax, label_above=True):
-    """Add vertical event lines with improved visibility."""
+    """Add vertical event lines with labels at bottom-right (matching Figure 1)."""
     ylim = ax.get_ylim()
+    # Extend y-axis downward to make room for labels
+    y_range = ylim[1] - ylim[0]
+    new_ylim = (ylim[0] - 0.15 * y_range, ylim[1])
+    ax.set_ylim(new_ylim)
+
     for key, ts in EVENTS_CHRONO.items():
         # Thicker, more visible lines
         ax.axvline(ts, color=EVENT_COLOR, linestyle="--",
                    alpha=0.6, linewidth=1.5, zorder=1)
 
-        # Label ABOVE the plot area
+        # Label at BOTTOM, to the RIGHT of vertical line (matching Figure 1)
         if label_above:
             label = SHORT_EVENT_LABELS.get(key, key)
-            ax.annotate(label, xy=(ts, ylim[1]), xytext=(0, 8),
-                       textcoords='offset points', ha='center', va='bottom',
+            ax.annotate(label, xy=(ts, new_ylim[0]), xytext=(EVENT_LABEL_OFFSET_X, 2),
+                       textcoords='offset points', ha='left', va='bottom',
                        fontsize=9, fontweight='bold', color=EVENT_COLOR,
                        annotation_clip=False)
 
@@ -116,9 +123,20 @@ def main():
     end_dt = pd.to_datetime(args.end_date)
     monthly = monthly[(monthly["month_dt"] >= start_dt) & (monthly["month_dt"] <= end_dt)].copy()
 
-    # Create 4x2 grid (sentiment removed - moved to SI)
-    fig, axes = plt.subplots(4, 2, figsize=(14, 18), sharex=True)
-    axes = axes.flatten()
+    # Create 4x4 grid for 7 panels (text panel removed)
+    # Rows 0-2: 2 panels each, Row 3: 1 panel centered
+    fig = plt.figure(figsize=(14, 16), constrained_layout=True)
+    gs = fig.add_gridspec(4, 4, height_ratios=[1, 1, 1, 1], hspace=0.1, wspace=0.1)
+
+    axes = [
+        fig.add_subplot(gs[0, 0:2]),  # Panel 1
+        fig.add_subplot(gs[0, 2:4]),  # Panel 2
+        fig.add_subplot(gs[1, 0:2]),  # Panel 3
+        fig.add_subplot(gs[1, 2:4]),  # Panel 4
+        fig.add_subplot(gs[2, 0:2]),  # Panel 5
+        fig.add_subplot(gs[2, 2:4]),  # Panel 6
+        fig.add_subplot(gs[3, 1:3]),  # Panel 7 (centered)
+    ]
 
     # =========================================================================
     # Panel 1: Mean Toxicity (Voat vs Reddit)
@@ -216,36 +234,7 @@ def main():
     add_events(axes[6])
 
     # =========================================================================
-    # Panel 8: Summary Statistics (text panel)
-    # =========================================================================
-    axes[7].axis('off')  # Hide axes for text panel
-
-    # Compute summary statistics
-    stats_text = f"Community: {args.community.upper()}\n\n"
-
-    if "toxicity_mean_voat" in monthly.columns and "toxicity_mean_reddit" in monthly.columns:
-        voat_tox = monthly["toxicity_mean_voat"].mean()
-        reddit_tox = monthly["toxicity_mean_reddit"].mean()
-        tox_ratio = voat_tox / reddit_tox if reddit_tox > 0 else np.nan
-        stats_text += f"Mean Toxicity:\n  Voat: {voat_tox:.3f}\n  Reddit: {reddit_tox:.3f}\n  Ratio: {tox_ratio:.2f}×\n\n"
-
-    if "active_users_voat" in monthly.columns:
-        voat_users_mean = monthly["active_users_voat"].mean()
-        voat_users_max = monthly["active_users_voat"].max()
-        stats_text += f"Voat Active Users:\n  Mean: {voat_users_mean:.0f}\n  Max: {voat_users_max:.0f}\n\n"
-
-    if "ei_index" in monthly.columns:
-        ei_mean = monthly["ei_index"].mean()
-        ei_std = monthly["ei_index"].std()
-        stats_text += f"E-I Index:\n  Mean: {ei_mean:.3f}\n  Std: {ei_std:.3f}\n"
-
-    axes[7].text(0.1, 0.9, stats_text, transform=axes[7].transAxes,
-                 fontsize=11, verticalalignment='top', fontfamily='monospace',
-                 bbox=dict(boxstyle='round', facecolor='#f0f0f0', edgecolor='gray', alpha=0.8))
-    axes[7].set_title("Summary Statistics")
-
-    # =========================================================================
-    # Add panel labels (1)-(8)
+    # Add panel labels (1)-(7)
     # =========================================================================
     for i, ax in enumerate(axes):
         add_panel_label(ax, i + 1)
@@ -253,15 +242,13 @@ def main():
     # =========================================================================
     # Legends and formatting
     # =========================================================================
-    for ax in axes[:7]:  # Skip text panel
+    for ax in axes:
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="best", fontsize=8, frameon=True,
                      facecolor='white', edgecolor='none', framealpha=0.8)
 
-    for ax in axes[5:7]:  # Bottom row x-labels
-        ax.set_xlabel("Month")
-
-    plt.tight_layout()
+    # X-labels on bottom row panels
+    axes[6].set_xlabel("Month")
 
     # =========================================================================
     # Save - publication quality (300 DPI + PDF)
