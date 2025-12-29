@@ -238,7 +238,7 @@ def main():
     # Create figure with 9 panels (5x4 grid) - logical narrative flow
     # Row 1: User activity, Row 2: Network structure, Row 3-4: Outcomes, Row 5: Heatmap (centered)
     fig = plt.figure(figsize=(12, 22))  # Taller for 5 rows
-    gs = fig.add_gridspec(5, 4, height_ratios=[1, 1, 1, 1, 0.8], hspace=0.4, wspace=0.3)
+    gs = fig.add_gridspec(5, 4, height_ratios=[1, 1, 1, 1, 0.8], hspace=0.4, wspace=0.45)
 
     # Panel assignments in logical order (per plan):
     # 1: Total Active Users, 2: Users by Status, 3: E-I Index, 4: Hub Rate
