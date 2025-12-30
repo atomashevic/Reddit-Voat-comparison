@@ -1,4 +1,6 @@
-# Reddit–Voat Deplatforming & Toxicity (MADOC) — Paper Reproduction Repo
+# Reddit–Voat Deplatforming, Reputation & Toxicity (MADOC)
+
+*This research was financially supported by the Science Fund of the Republic of Serbia, Prizma program (grant No. 7416).*
 
 This repository contains the analysis code and **paper-ready figures** for:
 *“Reddit Deplatforming and Toxicity Dynamics on Generalist Voat Communities”* (Dec 2025).
