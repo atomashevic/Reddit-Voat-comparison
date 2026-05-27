@@ -940,3 +940,76 @@ Verification:
   - memory `12.2 GB / 125.1 GB (11.8%)`;
   - disk free `27.6 GB` on the current filesystem;
   - CPU `7.9%`.
+
+## 2026-05-27 — TODO 5 short-window activity-spike addendum
+
+Status: `done` for PR evidence; manuscript integration still `planned`.
+
+Reason:
+
+- The earlier TODO 5 package added weekly toxicity event windows, but the
+  reviewer also requested a direct check for "activity spikes immediately
+  post-ban."
+- This addendum summarizes short-window activity volume around the same
+  `-8` to `+8` event-week windows.
+
+Verbatim comment covered:
+
+> Add robustness checks:
+> --activity spikes immediately post-ban (short window)
+
+New analysis added:
+
+- Updated script: `scripts/toxicity_robustness_analysis.py`
+- Updated tests: `tests/test_toxicity_robustness_analysis.py`
+- New compact table:
+  - `results/basic/compare/results/toxicity_weekly_activity_spike_summary.csv`
+- Updated response note:
+  - `results/basic/compare/results/toxicity_review_response.md`
+
+Methods:
+
+- Weekly activity windows use the same Monday-start event weeks as the weekly
+  toxicity event-window analysis.
+- Activity volume is counted from raw Voat post/comment rows, rather than from
+  monthly user summaries.
+- For each community/event/cohort and for the global pooled series, the table
+  reports:
+  - pre-event mean weekly activity count for weeks `-8` to `-1`;
+  - event-week activity count;
+  - post-event mean weekly activity count for weeks `0` to `+8`;
+  - post/pre, event-week/pre, and max-post-week/pre ratios;
+  - analogous active-user count changes.
+
+Key global all-user results:
+
+| Event | Pre mean weekly activity | Event week activity | Post mean weekly activity | Post/pre ratio | Event-week/pre ratio | Max post-week/pre ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| FPH | 334.1 | 1136.0 | 4144.0 | 12.40 | 3.40 | 30.43 |
+| Pizzagate | 1274.6 | 1297.0 | 1435.8 | 1.13 | 1.02 | 1.39 |
+| GreatAwakening | 1116.8 | 1215.0 | 1382.7 | 1.24 | 1.09 | 1.53 |
+| The_Donald | 1488.0 | 1673.0 | 1415.6 | 0.95 | 1.12 | 1.12 |
+
+Interpretation:
+
+- There is a very large short-window activity-volume spike after the FPH ban.
+- Later events show much smaller activity changes: Pizzagate and
+  GreatAwakening have modest post/pre increases, while The_Donald does not
+  show a sustained post-event activity increase in the global all-user series.
+- This supports a more heterogeneous event interpretation: early activity
+  influx was unusually large, whereas later toxicity and structural patterns
+  should not be explained by comparable global activity shocks alone.
+
+Manuscript action needed:
+
+- In the robustness paragraph for TODO 5, add one sentence noting that activity
+  volume spiked sharply after FPH but only modestly, or not sustainably, around
+  later events.
+- Do not use the FPH activity spike as evidence that all later event effects
+  were driven by equivalent volume shocks.
+
+Verification:
+
+- `python -m py_compile scripts/toxicity_robustness_analysis.py tests/test_toxicity_robustness_analysis.py`
+- `python -m unittest tests/test_toxicity_robustness_analysis.py`
+- `python scripts/toxicity_robustness_analysis.py --data-dir /home/atomasevic/socio/2025-Reddit-Voat/data --results-root /home/atomasevic/socio/2025-Reddit-Voat/results --skip-figures --log-level INFO`

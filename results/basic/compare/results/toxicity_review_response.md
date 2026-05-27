@@ -13,6 +13,7 @@ Evidence files:
 - `results/basic/compare/results/toxicity_monthly_paired_interval_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_event_window_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_prepost_change_summary.csv`
+- `results/basic/compare/results/toxicity_weekly_activity_spike_summary.csv`
 - `results/basic/compare/figures/toxicity_cohort_decomposition_global.png`
 - `results/basic/compare/figures/toxicity_weekly_event_window_global.png`
 
@@ -25,6 +26,11 @@ Key descriptive results:
   - Pizzagate: equal-user 0.0097; activity-weighted 0.0180.
   - GreatAwakening: equal-user 0.0138; activity-weighted 0.0092.
   - The_Donald: equal-user 0.0084; activity-weighted 0.0072.
+- Weekly global all-user activity-volume changes by event:
+  - FPH: post/pre activity ratio 12.4025; event-week/pre activity ratio 3.3999; max post-week/pre activity ratio 30.4257.
+  - Pizzagate: post/pre activity ratio 1.1264; event-week/pre activity ratio 1.0176; max post-week/pre activity ratio 1.3934.
+  - GreatAwakening: post/pre activity ratio 1.2381; event-week/pre activity ratio 1.0880; max post-week/pre activity ratio 1.5348.
+  - The_Donald: post/pre activity ratio 0.9513; event-week/pre activity ratio 1.1243; max post-week/pre activity ratio 1.1243.
 
 Reviewer-response framing:
 - R1-M3: report both equal-user and activity-weighted mean ToxiGen probabilities and state whether the two estimands align.
@@ -32,3 +38,4 @@ Reviewer-response framing:
 - R2-5 / PDF M7: cite Hartvigsen et al. (2022) for ToxiGen validation and explicitly acknowledge platform/domain-shift limits; no manual validation sample was added.
 - R2-7.1: use the monthly newcomer-vs-existing decomposition as the cohort toxicity evidence.
 - R2-7.2: use the weekly event-window table/figure as the short-term post-ban evidence.
+- R2-4: use the weekly activity-spike table to answer whether there were immediate post-ban volume spikes around each event.

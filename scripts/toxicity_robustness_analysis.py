@@ -357,6 +357,116 @@ def build_weekly_event_user_rows(
     return pd.concat(rows, ignore_index=True)
 
 
+def build_weekly_event_activity_user_rows(
+    community: str,
+    raw: pd.DataFrame,
+    first_seen: pd.DataFrame,
+    window_weeks: int,
+) -> pd.DataFrame:
+    """Return user-week activity counts around each ban event."""
+    first_seen_map = first_seen.set_index("user_id")["first_seen_dt"]
+    rows = []
+    for event in EVENTS_CHRONO:
+        event_week_start = event.date.normalize() - pd.Timedelta(days=event.date.weekday())
+        window_start = event_week_start - pd.Timedelta(weeks=window_weeks)
+        window_end = event_week_start + pd.Timedelta(weeks=window_weeks + 1)
+        window = raw[(raw["timestamp"] >= window_start) & (raw["timestamp"] < window_end)].copy()
+        if window.empty:
+            continue
+        window["first_seen_dt"] = window["user_id"].map(first_seen_map)
+        window["week_start"] = monday_week_start(window["timestamp"])
+        window["week_index"] = event_week_index(window["week_start"], event.date)
+        window["user_type"] = np.where(
+            window["first_seen_dt"] >= event.date, "newcomer", "existing"
+        )
+        window["event_key"] = event.key
+        window["event_label"] = event.label
+        window["event_date"] = event.date.strftime("%Y-%m-%d")
+        grouped = (
+            window.groupby(
+                [
+                    "event_key",
+                    "event_label",
+                    "event_date",
+                    "week_start",
+                    "week_index",
+                    "user_id",
+                    "user_type",
+                ],
+                as_index=False,
+            )
+            .agg(activity_count=("user_id", "size"))
+        )
+        grouped["community"] = community
+        rows.append(grouped)
+    if not rows:
+        return pd.DataFrame()
+    return pd.concat(rows, ignore_index=True)
+
+
+def aggregate_activity_periods(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    """Aggregate user-period activity counts without toxicity-score filtering."""
+    rows = []
+    for keys, group in df.groupby(group_cols, dropna=False):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        activity = float(group["activity_count"].sum())
+        active_users = int(group["user_id"].nunique())
+        row = dict(zip(group_cols, keys))
+        row.update(
+            {
+                "active_user_periods": active_users,
+                "activity_count": activity,
+                "mean_activity_per_active_user": (
+                    activity / active_users if active_users > 0 else np.nan
+                ),
+            }
+        )
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def summarize_activity_with_all_user_type(
+    df: pd.DataFrame,
+    base_group_cols: list[str],
+) -> pd.DataFrame:
+    """Add existing/newcomer/all weekly activity summaries."""
+    specific = df.copy()
+    all_rows = df.copy()
+    all_rows["user_type"] = "all"
+    combined = pd.concat([specific, all_rows], ignore_index=True)
+    return aggregate_activity_periods(combined, base_group_cols + ["user_type"])
+
+
+def weekly_activity_window_summary(weekly_activity_users: pd.DataFrame) -> pd.DataFrame:
+    base_cols = ["community", "event_key", "event_label", "event_date", "week_start", "week_index"]
+    by_community = summarize_activity_with_all_user_type(weekly_activity_users, base_cols)
+    pooled = summarize_activity_with_all_user_type(
+        weekly_activity_users,
+        ["event_key", "event_label", "event_date", "week_start", "week_index"],
+    )
+    pooled.insert(0, "community", "global")
+    out = pd.concat([by_community, pooled], ignore_index=True)
+    out = out.rename(columns={"user_type": "cohort"})
+    out["period_type"] = "activity_event_week"
+    out["week_start"] = pd.to_datetime(out["week_start"]).dt.strftime("%Y-%m-%d")
+    return out[
+        [
+            "period_type",
+            "community",
+            "event_key",
+            "event_label",
+            "event_date",
+            "week_start",
+            "week_index",
+            "cohort",
+            "active_user_periods",
+            "activity_count",
+            "mean_activity_per_active_user",
+        ]
+    ].sort_values(["community", "event_key", "week_index", "cohort"])
+
+
 def weekly_event_window_summary(weekly_users: pd.DataFrame) -> pd.DataFrame:
     base_cols = ["community", "event_key", "event_label", "event_date", "week_start", "week_index"]
     by_community = summarize_with_all_user_type(weekly_users, base_cols)
@@ -519,6 +629,70 @@ def monthly_paired_interval_summary(
     return pd.DataFrame(rows).sort_values(["comparison", "community", "series"])
 
 
+def ratio(numerator: float, denominator: float) -> float:
+    if pd.isna(numerator) or pd.isna(denominator) or denominator == 0:
+        return np.nan
+    return float(numerator / denominator)
+
+
+def weekly_activity_spike_summary(weekly_activity_summary: pd.DataFrame) -> pd.DataFrame:
+    """Summarize short-window activity spikes before versus after ban weeks."""
+    rows = []
+    group_cols = ["community", "event_key", "event_label", "event_date", "cohort"]
+    for keys, group in weekly_activity_summary.groupby(group_cols):
+        if not isinstance(keys, tuple):
+            keys = (keys,)
+        pre = group[group["week_index"] < 0]
+        post = group[group["week_index"] >= 0]
+        event_week = group[group["week_index"] == 0]
+
+        def avg(frame: pd.DataFrame, column: str) -> float:
+            return float(frame[column].mean()) if not frame.empty else np.nan
+
+        def first_or_nan(frame: pd.DataFrame, column: str) -> float:
+            return float(frame[column].iloc[0]) if not frame.empty else np.nan
+
+        pre_activity = avg(pre, "activity_count")
+        post_activity = avg(post, "activity_count")
+        event_activity = first_or_nan(event_week, "activity_count")
+        max_post_idx = post["activity_count"].idxmax() if not post.empty else None
+        max_post_activity = (
+            float(post.loc[max_post_idx, "activity_count"]) if max_post_idx is not None else np.nan
+        )
+        max_post_week = (
+            int(post.loc[max_post_idx, "week_index"]) if max_post_idx is not None else np.nan
+        )
+
+        pre_users = avg(pre, "active_user_periods")
+        post_users = avg(post, "active_user_periods")
+        event_users = first_or_nan(event_week, "active_user_periods")
+
+        row = dict(zip(group_cols, keys))
+        row.update(
+            {
+                "pre_weeks_observed": int(pre["week_index"].nunique()),
+                "post_weeks_observed": int(post["week_index"].nunique()),
+                "pre_mean_weekly_activity_count": pre_activity,
+                "event_week_activity_count": event_activity,
+                "post_mean_weekly_activity_count": post_activity,
+                "post_minus_pre_mean_weekly_activity_count": post_activity - pre_activity,
+                "post_pre_activity_ratio": ratio(post_activity, pre_activity),
+                "event_pre_activity_ratio": ratio(event_activity, pre_activity),
+                "max_post_week_index": max_post_week,
+                "max_post_week_activity_count": max_post_activity,
+                "max_post_pre_activity_ratio": ratio(max_post_activity, pre_activity),
+                "pre_mean_weekly_active_users": pre_users,
+                "event_week_active_users": event_users,
+                "post_mean_weekly_active_users": post_users,
+                "post_minus_pre_mean_weekly_active_users": post_users - pre_users,
+                "post_pre_active_user_ratio": ratio(post_users, pre_users),
+                "event_pre_active_user_ratio": ratio(event_users, pre_users),
+            }
+        )
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values(["community", "event_key", "cohort"])
+
+
 def weekly_prepost_change_summary(weekly_summary: pd.DataFrame) -> pd.DataFrame:
     rows = []
     group_cols = ["community", "event_key", "event_label", "event_date", "cohort"]
@@ -647,6 +821,7 @@ def write_review_note(
     weighting_summary: pd.DataFrame,
     interval_summary: pd.DataFrame,
     prepost_summary: pd.DataFrame,
+    activity_spike_summary: pd.DataFrame,
     results_dir: Path,
     figures_dir: Path,
 ) -> None:
@@ -677,6 +852,11 @@ def write_review_note(
         (prepost_summary["community"] == "global") & (prepost_summary["cohort"] == "all")
     ].copy()
     prepost_global["event_order"] = prepost_global["event_key"].map(EVENT_ORDER)
+    activity_spike_global = activity_spike_summary[
+        (activity_spike_summary["community"] == "global")
+        & (activity_spike_summary["cohort"] == "all")
+    ].copy()
+    activity_spike_global["event_order"] = activity_spike_global["event_key"].map(EVENT_ORDER)
 
     def display_path(path: Path) -> str:
         try:
@@ -706,6 +886,7 @@ def write_review_note(
         f"- `{display_path(results_dir / 'toxicity_monthly_paired_interval_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_event_window_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_prepost_change_summary.csv')}`",
+        f"- `{display_path(results_dir / 'toxicity_weekly_activity_spike_summary.csv')}`",
         f"- `{display_path(figures_dir / 'toxicity_cohort_decomposition_global.png')}`",
         f"- `{display_path(figures_dir / 'toxicity_weekly_event_window_global.png')}`",
         "",
@@ -744,6 +925,15 @@ def write_review_note(
             f"{row['event_label']}: equal-user {format_float(row['post_minus_pre_equal_user'])}; "
             f"activity-weighted {format_float(row['post_minus_pre_activity_weighted'])}."
         )
+    lines.append("- Weekly global all-user activity-volume changes by event:")
+    for _, row in activity_spike_global.sort_values("event_order").iterrows():
+        lines.append(
+            "  - "
+            f"{row['event_label']}: post/pre activity ratio "
+            f"{format_float(row['post_pre_activity_ratio'])}; "
+            f"event-week/pre activity ratio {format_float(row['event_pre_activity_ratio'])}; "
+            f"max post-week/pre activity ratio {format_float(row['max_post_pre_activity_ratio'])}."
+        )
     lines.extend(
         [
             "",
@@ -768,6 +958,10 @@ def write_review_note(
             (
                 "- R2-7.2: use the weekly event-window table/figure as the "
                 "short-term post-ban evidence."
+            ),
+            (
+                "- R2-4: use the weekly activity-spike table to answer whether "
+                "there were immediate post-ban volume spikes around each event."
             ),
             "",
         ]
@@ -811,6 +1005,7 @@ def main() -> None:
 
     monthly_rows = []
     weekly_rows = []
+    weekly_activity_rows = []
     for community in args.communities:
         LOGGER.info("Processing %s", community)
         raw = load_raw_activity(args.data_dir, community)
@@ -819,6 +1014,14 @@ def main() -> None:
         monthly_rows.append(build_monthly_user_rows(community, user_month_path, first_seen))
         weekly_rows.append(
             build_weekly_event_user_rows(
+                community=community,
+                raw=raw,
+                first_seen=first_seen,
+                window_weeks=args.window_weeks,
+            )
+        )
+        weekly_activity_rows.append(
+            build_weekly_event_activity_user_rows(
                 community=community,
                 raw=raw,
                 first_seen=first_seen,
@@ -834,9 +1037,14 @@ def main() -> None:
 
     monthly_users = pd.concat(monthly_rows, ignore_index=True)
     weekly_users = pd.concat([df for df in weekly_rows if not df.empty], ignore_index=True)
+    weekly_activity_users = pd.concat(
+        [df for df in weekly_activity_rows if not df.empty],
+        ignore_index=True,
+    )
 
     monthly_summary = monthly_cohort_decomposition(monthly_users)
     weekly_summary = weekly_event_window_summary(weekly_users)
+    weekly_activity_summary = weekly_activity_window_summary(weekly_activity_users)
     weighting_summary = weighting_comparison_summary(monthly_summary)
     interval_summary = monthly_paired_interval_summary(
         monthly_summary=monthly_summary,
@@ -846,12 +1054,14 @@ def main() -> None:
         seed=args.interval_seed,
     )
     prepost_summary = weekly_prepost_change_summary(weekly_summary)
+    activity_spike_summary = weekly_activity_spike_summary(weekly_activity_summary)
 
     monthly_path = args.output_dir / "toxicity_cohort_decomposition_summary.csv"
     weighting_path = args.output_dir / "toxicity_weighting_comparison_summary.csv"
     interval_path = args.output_dir / "toxicity_monthly_paired_interval_summary.csv"
     weekly_path = args.output_dir / "toxicity_weekly_event_window_summary.csv"
     prepost_path = args.output_dir / "toxicity_weekly_prepost_change_summary.csv"
+    activity_spike_path = args.output_dir / "toxicity_weekly_activity_spike_summary.csv"
     note_path = args.output_dir / "toxicity_review_response.md"
 
     monthly_summary.to_csv(monthly_path, index=False)
@@ -859,6 +1069,7 @@ def main() -> None:
     interval_summary.to_csv(interval_path, index=False)
     weekly_summary.to_csv(weekly_path, index=False)
     prepost_summary.to_csv(prepost_path, index=False)
+    activity_spike_summary.to_csv(activity_spike_path, index=False)
 
     if not args.skip_figures:
         plot_monthly_global(
@@ -876,6 +1087,7 @@ def main() -> None:
         weighting_summary=weighting_summary,
         interval_summary=interval_summary,
         prepost_summary=prepost_summary,
+        activity_spike_summary=activity_spike_summary,
         results_dir=args.output_dir,
         figures_dir=args.figures_dir,
     )

@@ -12,6 +12,8 @@ from scripts.toxicity_robustness_analysis import (
     monthly_paired_interval_summary,
     moving_block_bootstrap_mean_ci,
     newey_west_mean_ci,
+    weekly_activity_spike_summary,
+    weekly_activity_window_summary,
     summarize_with_all_user_type,
     weighted_mean,
 )
@@ -138,6 +140,50 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         self.assertIn("hac_mean_ci_high", out.columns)
         self.assertIn("activity_weighted_minus_equal_user", set(out["comparison"]))
         self.assertIn("newcomer_minus_existing", set(out["comparison"]))
+
+    def test_weekly_activity_spike_summary_reports_prepost_ratios(self):
+        weekly_users = pd.DataFrame(
+            {
+                "community": ["funny"] * 6,
+                "event_key": ["fph"] * 6,
+                "event_label": ["FPH"] * 6,
+                "event_date": ["2015-06-10"] * 6,
+                "week_start": pd.to_datetime(
+                    [
+                        "2015-05-25",
+                        "2015-06-01",
+                        "2015-06-08",
+                        "2015-06-15",
+                        "2015-05-25",
+                        "2015-06-08",
+                    ]
+                ),
+                "week_index": [-2, -1, 0, 1, -2, 0],
+                "user_id": ["u1", "u1", "u1", "u1", "u2", "u2"],
+                "user_type": [
+                    "existing",
+                    "existing",
+                    "existing",
+                    "existing",
+                    "newcomer",
+                    "newcomer",
+                ],
+                "activity_count": [2, 4, 10, 6, 2, 8],
+            }
+        )
+
+        weekly = weekly_activity_window_summary(weekly_users)
+        out = weekly_activity_spike_summary(weekly)
+        row = out[(out["community"] == "global") & (out["cohort"] == "all")].iloc[0]
+
+        self.assertEqual(row["pre_weeks_observed"], 2)
+        self.assertEqual(row["post_weeks_observed"], 2)
+        self.assertAlmostEqual(row["pre_mean_weekly_activity_count"], 4.0)
+        self.assertAlmostEqual(row["event_week_activity_count"], 18.0)
+        self.assertAlmostEqual(row["post_mean_weekly_activity_count"], 12.0)
+        self.assertAlmostEqual(row["post_pre_activity_ratio"], 3.0)
+        self.assertAlmostEqual(row["event_pre_activity_ratio"], 4.5)
+        self.assertEqual(row["max_post_week_index"], 0)
 
 
 if __name__ == "__main__":
