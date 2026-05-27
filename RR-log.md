@@ -671,3 +671,158 @@ The RR response and manuscript revision need compact cross-community summaries,
 the two figures, and reproducible code. The per-user/per-month detail tables are
 useful for debugging but are not necessary evidence for the reviewer response
 and would make the PR noisier.
+
+## 2026-05-27 — TODO 4 upgraded regime-change validation
+
+Status: `done` for analysis and response planning; manuscript integration still
+`planned`.
+
+Scope:
+
+- This entry connects three overlapping reviewer concerns into one
+  non-redundant validation upgrade:
+  - R1 point 2: justify why E-I index alone defines regime change.
+  - PDF E1: use breakpoint analysis as the explicit ban-alignment test.
+  - PDF M5: expand and visualize the Breakpoint Validation section.
+- Per the current work goal, this entry records new analysis and response
+  evidence without changing the manuscript.
+
+Verbatim comments:
+
+> Justify why E-I index alone defines regime change. Add model comparison (1 vs 2 vs multiple breakpoints) and robustness to alternative splits.
+
+> E1. Bring the causal framing in line with the descriptive design, and use the breakpoint analysis as the explicit test of ban-alignment. The manuscript disavows causal inference (Discussion, Limitations) yet the title (“Toxicity Spillover”), the abstract, and the discussion section consistently use causal language around presumed migration from Reddit (“Hostile Takeover,” “displaced users,” bans “followed by” transformation). Two issues follow. First, the “Newcomer” cohort is defined by first activity after a ban (Methods, User Cohort Partitioning), which mixes actual migrants with organic arrivals. Therefore, the language throughout should not attribute change to migrants more strongly than this proxy allows. Second, the matched Reddit series is described as a counterfactual showing that observed changes “reflect platform-specific dynamics rather than broader temporal trends” (Discussion, Para. 7). That comparison does not control for Voat-specific organic toxification—a permissive, free-speech platform may well self-select toxic users and naturally drift more toxic over time independent of any ban—so it cannot rule out that Voat would have trended this way regardless. Notably, your own breakpoint analysis supports caution: toxicity shows weak breaks (Table 2; 0 of 7 series near GA), consistent with a gradual rise rather than ban-triggered discontinuities.
+>
+> Revision needed: reframe the paper as a longitudinal characterization of Voat’s generalist communities over a period that includes major Reddit bans, and position the Breakpoint Validation section as the explicit test of whether each metric aligns with ban events. Then interpret each metric by what that test supports: the E-I index does break at the GA ban (5 of 7 series), so a ban-aligned reading is defensible there; toxicity and reputation do not, so describe them as gradual trends, or conduct further analysis to strengthen the link to the Reddit bans. As a result, I would soften “Spillover/Hostile Takeover/displaced users” throughout and consider revising the title accordingly.
+
+> M5. Expand and visualize the Breakpoint Validation section. This section validates the central two-regime thesis but appears only as a table (Table 2; Supplementary Table 1). Please consider adding a visualization of the segmented fits for at least the global series, and state directly that only the E-I index breaks at the GA ban while toxicity, reputation, Gini, and assortativity do not. Given the importance of this section to the causal interpretation of this entire paper, I think more work and analysis should be put into it.
+
+New analysis added:
+
+- Extended script: `scripts/regime_break_analysis.py`
+- New tests: `tests/test_regime_break_analysis.py`
+- Updated single-break summary:
+  - `results/basic/compare/results/regime_breakpoints.csv`
+  - `results/basic/compare/results/regime_break_summary.txt`
+- New model-comparison output:
+  - `results/basic/compare/results/regime_model_comparison.csv`
+- New split-date robustness output:
+  - `results/basic/compare/results/regime_split_robustness.csv`
+- New E-I definition sensitivity output:
+  - `results/basic/compare/results/regime_ei_definition_sensitivity.csv`
+- New global segmented-fit outputs:
+  - `results/basic/compare/results/regime_global_segmented_fits.csv`
+  - `results/basic/compare/figures/regime_global_segmented_fits.png`
+
+Cleanup decision:
+
+- Retain the compact model-comparison, split-robustness, E-I sensitivity, and
+  global-fit outputs above because they directly support the RR response.
+- Do not retain the regenerated 3-month and 12-month rolling-tenure
+  per-community intermediate CSVs. They can be reproduced with
+  `scripts/rolling_cohort_ei_sensitivity.py` and are summarized in
+  `regime_ei_definition_sensitivity.csv`.
+- Keep the existing tracked 6-month rolling-tenure files as prior sensitivity
+  artifacts, but do not add new rolling-tenure detail tables for this TODO.
+
+Validation model:
+
+- Model 0: one linear trend, no break.
+- Model 1: one segmented break, selected by grid search.
+- Model 2: two segmented breaks, selected by grid search.
+- Minimum segment length: 6 months.
+- Model comparison reports SSE, RMSE, AICc, BIC, Delta BIC from no-break, and
+  whether each model is BIC-selected.
+- Single-break bootstrap retained from the existing analysis:
+  200 residual bootstrap iterations, seed 2025.
+
+Key results:
+
+- Best one-break GA alignment, event-based definitions:
+  - `ei_index`: 5/7 series break within +/-3 months of GA; median SSE ratio 0.358.
+  - `toxicity_mean`: 0/7 near GA; median SSE ratio 0.604.
+  - `reputation_mean`: 1/7 near GA; median SSE ratio 0.640.
+  - `existing_gini`: 0/7 near GA; median SSE ratio 0.181, with breaks at 2015-07.
+  - `degree_assortativity`: 0/7 near GA; median SSE ratio 0.464.
+- Global one-break estimates:
+  - `ei_index`: 2018-10, near GA.
+  - `toxicity_mean`: 2018-05, outside the +/-3 month GA window.
+  - `reputation_mean`: 2016-05.
+  - `existing_gini`: 2015-07.
+  - `degree_assortativity`: 2015-01.
+- BIC-selected model counts:
+  - `ei_index`: 2-break selected for 7/7 series.
+  - `existing_gini`: 2-break selected for 7/7 series.
+  - `reputation_mean`: 2-break selected for 7/7 series.
+  - `toxicity_mean`: 1-break selected for 3/7, 2-break for 4/7.
+  - `degree_assortativity`: 1-break selected for 6/7, 2-break for 1/7.
+- Global BIC-selected break sets:
+  - `ei_index`: 2018-10 and 2020-07, consistent with GA- and TD-period structural mixing changes.
+  - `toxicity_mean`: 2015-01 and 2018-05, not GA-aligned under the +/-3 month rule.
+  - `reputation_mean`: 2015-01 and 2015-08, early-platform breaks.
+  - `existing_gini`: 2014-12 and 2015-07, early hierarchy reconfiguration.
+  - `degree_assortativity`: one-break model selected at 2015-01.
+- Alternative split-date robustness:
+  - Exact GA fixed split is not the best one-break split for most metrics.
+  - Within GA +/-6 months, E-I's best local split is GA +1 month, with median
+    Delta BIC = 0.00 and median SSE ratio = 1.000 versus the best one-break fit.
+  - Toxicity's best local split is GA -4 months, but the one-break analysis
+    remains dispersed and 0/7 series are within the stricter +/-3 month GA window.
+  - Reputation remains weakly GA-aligned even under local split variation.
+- Alternative newcomer definitions:
+  - Event-based E-I: 5/7 one-break series near GA.
+  - Rolling tenure 3 months: 0/7 near GA.
+  - Rolling tenure 6 months: 0/7 near GA.
+  - Rolling tenure 12 months: 0/7 near GA.
+  - Therefore the GA-aligned E-I breakpoint is strongest for the event-based
+    cohort definition used in the main analysis, while rolling-tenure E-I is a
+    sensitivity check that does not reproduce the same breakpoint timing.
+
+Unified response draft:
+
+We agree that the original Breakpoint Validation section should do more work
+and should be framed as a ban-alignment test rather than a broad validation of
+all regime claims. We expanded the breakpoint analysis to compare no-break,
+one-break, and two-break segmented models using BIC as the primary selection
+criterion and AICc as secondary evidence. We also added fixed split-date
+robustness around the ban events and GA +/-6 months, plus an E-I sensitivity
+analysis using rolling-tenure newcomer definitions. Finally, we added a global
+segmented-fit figure so readers can inspect the fitted trajectories directly.
+
+The expanded results support a narrower claim than the original manuscript.
+Event-based E-I remains the clearest GA-aligned structural evidence: 5/7
+one-break series break near GA, and the global E-I one-break estimate is
+2018-10. In the two-break comparison, global E-I selects 2018-10 and 2020-07,
+which is consistent with structural mixing changes around the GA and TD periods.
+However, toxicity and reputation do not show robust GA-aligned breaks. Toxicity
+has 0/7 one-break series near GA, and reputation has only 1/7. These should be
+described as gradual or heterogeneous trends rather than abrupt GA-triggered
+breaks. The rolling-tenure E-I sensitivity also cautions that the GA-aligned
+E-I breakpoint is strongest under the event-based cohort definition, not a
+definition-independent property of all newcomer partitions.
+
+Manuscript action needed:
+
+- Reframe breakpoint analysis as the explicit ban-alignment test.
+- Replace "validates the two-regime interpretation" with language such as
+  "tests which metrics support a GA-aligned structural regime change."
+- State directly:
+  "E-I index provides the strongest GA-aligned structural break evidence;
+  toxicity and reputation do not show robust GA-aligned breaks and are better
+  described as gradual or heterogeneous trends."
+- Clarify that the two-regime claim is strongest for cohort mixing and network
+  structure, not for toxicity or reputation as abrupt ban-aligned outcomes.
+- Add or reference the global segmented-fit figure.
+- Add a limitation/sensitivity sentence:
+  "The GA-aligned E-I breakpoint is strongest under event-based cohort labels;
+  rolling-tenure newcomer definitions do not reproduce the same breakpoint
+  timing."
+
+Verification:
+
+- `python -m py_compile scripts/regime_break_analysis.py tests/test_regime_break_analysis.py`
+- `python -m unittest tests.test_regime_break_analysis -v`
+- `python scripts/rolling_cohort_ei_sensitivity.py --tenure-months 3 --log-level INFO`
+- `python scripts/rolling_cohort_ei_sensitivity.py --tenure-months 6 --log-level INFO`
+- `python scripts/rolling_cohort_ei_sensitivity.py --tenure-months 12 --log-level INFO`
+- `python scripts/regime_break_analysis.py --bootstrap-iterations 200 --log-level INFO`

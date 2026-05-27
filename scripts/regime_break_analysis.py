@@ -2,18 +2,10 @@
 """
 Regime breakpoint analysis for Voat generalist communities.
 
-Package A script: formally validate the paper's two‑regime claim by
-detecting a single structural break in key monthly time series.
-
-The script:
-  1) Loads per‑community Voat monthly metrics already produced by pipelines.
-  2) For each metric, fits a single‑break segmented linear model via grid search
-     and selects the breakpoint minimizing SSE.
-  3) Uses a residual bootstrap to assess breakpoint stability and provide
-     a rough confidence interval.
-  4) Writes a CSV of breakpoint estimates and an informative text summary.
-
-No external dependencies beyond numpy/pandas.
+This script treats breakpoint analysis as a ban-alignment validation check. It
+keeps the original single-break estimates while adding model comparison,
+alternative split-date robustness, E-I newcomer-definition sensitivity, and
+global segmented-fit outputs.
 """
 
 from __future__ import annotations
@@ -23,14 +15,14 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
-from scripts.migration_utils import EVENTS  # noqa: E402
+from scripts.migration_utils import EVENTS, EVENTS_CHRONO, EVENT_LABELS_CHRONO  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +37,7 @@ DEFAULT_METRICS = [
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Single-break regime validation analysis.")
+    parser = argparse.ArgumentParser(description="Regime breakpoint and ban-alignment validation.")
     parser.add_argument(
         "--communities",
         nargs="*",
@@ -77,6 +69,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory for CSV and text summary outputs.",
     )
     parser.add_argument(
+        "--figure-dir",
+        type=Path,
+        default=REPO_ROOT / "results" / "basic" / "compare" / "figures",
+        help="Directory for generated figures.",
+    )
+    parser.add_argument(
         "--min-segment-months",
         type=int,
         default=6,
@@ -99,6 +97,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=3,
         help="Window (months) to count breaks near the GA ban (2018-09).",
+    )
+    parser.add_argument(
+        "--max-breaks",
+        type=int,
+        default=2,
+        help="Maximum number of breakpoints for model comparison.",
+    )
+    parser.add_argument(
+        "--rolling-tenures",
+        nargs="*",
+        type=int,
+        default=[3, 6, 12],
+        help="Rolling-tenure E-I definitions to include if outputs exist.",
     )
     parser.add_argument(
         "--include-global",
@@ -172,7 +183,7 @@ def load_community_frame(results_dir: Path, backup_root: Path, community: str) -
 
     # Reputation fallback: some monthly aggregates were built with --skip-reputation.
     if "reputation_mean" not in monthly.columns or monthly["reputation_mean"].notna().sum() == 0:
-        rep_df = load_reputation_data(args.results_dir, "voat", community)
+        rep_df = load_reputation_data(results_dir, "voat", community)
         if not rep_df.empty:
             rep_df["month_dt"] = pd.to_datetime(rep_df["month"] + "-01", errors="coerce")
             if "reputation_mean" not in monthly.columns:
@@ -259,6 +270,22 @@ def fit_linear(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float, np.nd
 
 
 @dataclass
+class SegmentedFit:
+    break_indices: Tuple[int, ...]
+    slopes: Tuple[float, ...]
+    intercepts: Tuple[float, ...]
+    sse_total: float
+    rmse: float
+    aicc: float
+    bic: float
+    yhat: np.ndarray
+
+    @property
+    def n_breaks(self) -> int:
+        return len(self.break_indices)
+
+
+@dataclass
 class BreakFit:
     break_idx: int
     pre_slope: float
@@ -273,6 +300,145 @@ class BreakFit:
         if self.sse_single <= 0 or not np.isfinite(self.sse_single):
             return float("nan")
         return self.sse_total / self.sse_single
+
+
+def _valid_break_indices(n: int, break_indices: Sequence[int], min_seg: int) -> bool:
+    if any(idx <= 0 or idx >= n for idx in break_indices):
+        return False
+    if tuple(sorted(break_indices)) != tuple(break_indices):
+        return False
+    boundaries = (0, *break_indices, n)
+    return all((right - left) >= min_seg for left, right in zip(boundaries[:-1], boundaries[1:]))
+
+
+def _information_criteria(sse: float, n_obs: int, n_params: int) -> Tuple[float, float]:
+    if n_obs <= 0 or n_params <= 0:
+        return float("nan"), float("nan")
+    safe_sse = max(float(sse), np.finfo(float).tiny)
+    aic = n_obs * np.log(safe_sse / n_obs) + 2 * n_params
+    if n_obs > n_params + 1:
+        aicc = aic + (2 * n_params * (n_params + 1)) / (n_obs - n_params - 1)
+    else:
+        aicc = float("inf")
+    bic = n_obs * np.log(safe_sse / n_obs) + n_params * np.log(n_obs)
+    return float(aicc), float(bic)
+
+
+def fit_segmented_model(
+    x: np.ndarray,
+    y: np.ndarray,
+    break_indices: Sequence[int] = (),
+    min_seg: int = 2,
+) -> Optional[SegmentedFit]:
+    """Fit independent linear segments for fixed breakpoint indices."""
+    n = len(x)
+    breaks = tuple(int(idx) for idx in break_indices)
+    if not _valid_break_indices(n, breaks, min_seg):
+        return None
+
+    boundaries = (0, *breaks, n)
+    yhat = np.full(n, np.nan, dtype=float)
+    slopes: List[float] = []
+    intercepts: List[float] = []
+    sse_total = 0.0
+
+    for left, right in zip(boundaries[:-1], boundaries[1:]):
+        slope, intercept, sse, segment_yhat = fit_linear(x[left:right], y[left:right])
+        slopes.append(slope)
+        intercepts.append(intercept)
+        yhat[left:right] = segment_yhat
+        sse_total += sse
+
+    n_segments = len(boundaries) - 1
+    n_params = (2 * n_segments) + len(breaks)
+    rmse = float(np.sqrt(sse_total / n)) if n else float("nan")
+    aicc, bic = _information_criteria(sse_total, n, n_params)
+    return SegmentedFit(
+        break_indices=breaks,
+        slopes=tuple(slopes),
+        intercepts=tuple(intercepts),
+        sse_total=float(sse_total),
+        rmse=rmse,
+        aicc=aicc,
+        bic=bic,
+        yhat=yhat,
+    )
+
+
+def find_best_segmented_model(
+    x: np.ndarray,
+    y: np.ndarray,
+    n_breaks: int,
+    min_seg: int,
+) -> Optional[SegmentedFit]:
+    """Grid-search the SSE-minimizing segmented model with n_breaks."""
+    n = len(x)
+    if n_breaks == 0:
+        return fit_segmented_model(x, y, (), min_seg)
+    if n < ((n_breaks + 1) * min_seg):
+        return None
+
+    best: Optional[SegmentedFit] = None
+    if n_breaks == 1:
+        for idx in range(min_seg, n - min_seg + 1):
+            fit = fit_segmented_model(x, y, (idx,), min_seg)
+            if fit is not None and (best is None or fit.sse_total < best.sse_total):
+                best = fit
+        return best
+
+    if n_breaks == 2:
+        for first_idx in range(min_seg, n - (2 * min_seg) + 1):
+            for second_idx in range(first_idx + min_seg, n - min_seg + 1):
+                fit = fit_segmented_model(x, y, (first_idx, second_idx), min_seg)
+                if fit is not None and (best is None or fit.sse_total < best.sse_total):
+                    best = fit
+        return best
+
+    raise ValueError("Only 0, 1, or 2 breakpoints are supported.")
+
+
+def break_index_for_month(months: Sequence[pd.Timestamp], split_month: pd.Timestamp) -> int:
+    """Return the first index whose month is at or after split_month."""
+    split = pd.Timestamp(split_month).to_period("M").to_timestamp()
+    for idx, month in enumerate(months):
+        if pd.Timestamp(month).to_period("M").to_timestamp() >= split:
+            return idx
+    return len(months)
+
+
+def prepare_metric_series(
+    df: pd.DataFrame,
+    metric: str,
+) -> Tuple[Optional[List[pd.Timestamp]], Optional[np.ndarray], Optional[np.ndarray], Optional[str]]:
+    if metric not in df.columns:
+        return None, None, None, f"missing metric column {metric}"
+
+    series = df[["month_dt", metric]].dropna().sort_values("month_dt")
+    if series.empty:
+        return None, None, None, "all values NaN"
+
+    months = series["month_dt"].tolist()
+    y = series[metric].astype(float).to_numpy()
+    x = np.array([(m.year * 12 + m.month) for m in months], dtype=float)
+    x = x - x[0]
+    return months, x, y, None
+
+
+def format_break_months(fit: SegmentedFit, months: Sequence[pd.Timestamp]) -> str:
+    if not fit.break_indices:
+        return ""
+    return ";".join(months[idx].strftime("%Y-%m") for idx in fit.break_indices)
+
+
+def distance_to_event_month(break_months: str, event_month: pd.Timestamp) -> Optional[int]:
+    if not break_months:
+        return None
+    distances = [
+        month_distance(pd.Timestamp(month + "-01"), event_month)
+        for month in break_months.split(";")
+        if month
+    ]
+    return min(distances) if distances else None
 
 
 def find_best_break(x: np.ndarray, y: np.ndarray, min_seg: int) -> Optional[BreakFit]:
@@ -418,12 +584,389 @@ def compute_global_frame(
     return out
 
 
+def model_comparison_rows(
+    community: str,
+    metric: str,
+    source_definition: str,
+    df: pd.DataFrame,
+    max_breaks: int,
+    min_seg: int,
+    near_window: int,
+) -> List[Dict[str, object]]:
+    months, x, y, reason = prepare_metric_series(df, metric)
+    if reason is not None or months is None or x is None or y is None:
+        return []
+
+    fits: Dict[int, SegmentedFit] = {}
+    for n_breaks in range(max_breaks + 1):
+        fit = find_best_segmented_model(x, y, n_breaks, min_seg)
+        if fit is not None:
+            fits[n_breaks] = fit
+
+    if not fits:
+        return []
+
+    no_break_bic = fits[0].bic if 0 in fits else float("nan")
+    best_bic = min(fit.bic for fit in fits.values())
+    ga_month = pd.Timestamp(EVENTS["B"].strftime("%Y-%m-01"))
+    rows: List[Dict[str, object]] = []
+
+    for n_breaks, fit in sorted(fits.items()):
+        break_months = format_break_months(fit, months)
+        dist = distance_to_event_month(break_months, ga_month)
+        rows.append(
+            {
+                "community": community,
+                "metric": metric,
+                "source_definition": source_definition,
+                "model": f"{n_breaks}_break",
+                "n_breaks": n_breaks,
+                "n_obs": len(y),
+                "break_months": break_months,
+                "sse": fit.sse_total,
+                "rmse": fit.rmse,
+                "aicc": fit.aicc,
+                "bic": fit.bic,
+                "delta_bic_vs_no_break": fit.bic - no_break_bic,
+                "bic_selected": bool(np.isclose(fit.bic, best_bic)),
+                "dist_to_ga_ban_months": dist if dist is not None else "",
+                "near_ga_ban_pm_window": bool(dist is not None and dist <= near_window),
+                "slopes": ";".join(f"{s:.8g}" for s in fit.slopes),
+            }
+        )
+    return rows
+
+
+def fixed_split_candidates() -> List[Tuple[str, str, pd.Timestamp]]:
+    candidates: List[Tuple[str, str, pd.Timestamp]] = []
+    for key in ["A", "B", "C", "D"]:
+        event_month = EVENTS_CHRONO[key].to_period("M").to_timestamp()
+        label = EVENT_LABELS_CHRONO[key].replace(" ", "_").replace("/", "_")
+        candidates.append(("event", label, event_month))
+
+    ga_month = EVENTS["B"].to_period("M").to_timestamp()
+    for offset in range(-6, 7):
+        split_month = ga_month + pd.DateOffset(months=offset)
+        if offset < 0:
+            label = f"GA_minus_{abs(offset):02d}m"
+        elif offset > 0:
+            label = f"GA_plus_{offset:02d}m"
+        else:
+            label = "GA_00m"
+        candidates.append(("ga_local", label, split_month))
+    return candidates
+
+
+def split_robustness_rows(
+    community: str,
+    metric: str,
+    df: pd.DataFrame,
+    min_seg: int,
+) -> List[Dict[str, object]]:
+    months, x, y, reason = prepare_metric_series(df, metric)
+    if reason is not None or months is None or x is None or y is None:
+        return []
+
+    no_break = find_best_segmented_model(x, y, 0, min_seg)
+    best_one = find_best_segmented_model(x, y, 1, min_seg)
+    if no_break is None or best_one is None:
+        return []
+
+    rows: List[Dict[str, object]] = []
+    for candidate_group, split_label, split_month in fixed_split_candidates():
+        split_idx = break_index_for_month(months, split_month)
+        fixed_fit = fit_segmented_model(x, y, (split_idx,), min_seg)
+        valid = fixed_fit is not None
+        row: Dict[str, object] = {
+            "community": community,
+            "metric": metric,
+            "candidate_group": candidate_group,
+            "split_label": split_label,
+            "split_month": pd.Timestamp(split_month).strftime("%Y-%m"),
+            "valid": valid,
+            "best_one_break_month": format_break_months(best_one, months),
+            "best_one_break_bic": best_one.bic,
+            "no_break_bic": no_break.bic,
+        }
+        if fixed_fit is None:
+            row.update(
+                {
+                    "sse": "",
+                    "rmse": "",
+                    "aicc": "",
+                    "bic": "",
+                    "delta_bic_vs_no_break": "",
+                    "delta_bic_vs_best_one_break": "",
+                    "sse_ratio_vs_no_break": "",
+                    "sse_ratio_vs_best_one_break": "",
+                }
+            )
+        else:
+            row.update(
+                {
+                    "sse": fixed_fit.sse_total,
+                    "rmse": fixed_fit.rmse,
+                    "aicc": fixed_fit.aicc,
+                    "bic": fixed_fit.bic,
+                    "delta_bic_vs_no_break": fixed_fit.bic - no_break.bic,
+                    "delta_bic_vs_best_one_break": fixed_fit.bic - best_one.bic,
+                    "sse_ratio_vs_no_break": fixed_fit.sse_total / no_break.sse_total
+                    if no_break.sse_total > 0
+                    else float("nan"),
+                    "sse_ratio_vs_best_one_break": fixed_fit.sse_total / best_one.sse_total
+                    if best_one.sse_total > 0
+                    else float("nan"),
+                }
+            )
+        rows.append(row)
+    return rows
+
+
+def load_ei_definition_frames(
+    frames: Dict[str, pd.DataFrame],
+    output_dir: Path,
+    tenures: Sequence[int],
+) -> Dict[str, Dict[str, pd.DataFrame]]:
+    """Load event-based and rolling-tenure E-I frames for sensitivity checks."""
+    definitions: Dict[str, Dict[str, pd.DataFrame]] = {"event_based": {}}
+    for community, frame in frames.items():
+        if "ei_index" in frame.columns:
+            definitions["event_based"][community] = frame[["month_dt", "ei_index"]].copy()
+
+    for tenure in tenures:
+        source = f"rolling_tenure_{tenure}m"
+        source_frames: Dict[str, pd.DataFrame] = {}
+        for community in frames:
+            path = output_dir / f"c2_ei_rolling_tenure{tenure}_{community}.csv"
+            if not path.exists():
+                continue
+            df = pd.read_csv(path)
+            if "month" not in df.columns or "ei_index_rolling" not in df.columns:
+                continue
+            df["month_dt"] = pd.to_datetime(df["month"].astype(str) + "-01", errors="coerce")
+            source_frames[community] = df[["month_dt", "ei_index_rolling"]].rename(
+                columns={"ei_index_rolling": "ei_index"}
+            )
+        if source_frames:
+            definitions[source] = source_frames
+    return definitions
+
+
+def global_fit_rows(
+    global_frame: pd.DataFrame,
+    metrics: List[str],
+    max_breaks: int,
+    min_seg: int,
+) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+    for metric in metrics:
+        months, x, y, reason = prepare_metric_series(global_frame, metric)
+        if reason is not None or months is None or x is None or y is None:
+            continue
+
+        fits: Dict[int, SegmentedFit] = {}
+        for n_breaks in range(max_breaks + 1):
+            fit = find_best_segmented_model(x, y, n_breaks, min_seg)
+            if fit is not None:
+                fits[n_breaks] = fit
+        if not fits:
+            continue
+
+        selected_break_count, selected_fit = min(fits.items(), key=lambda item: item[1].bic)
+        no_break_fit = fits.get(0)
+        one_break_fit = fits.get(1)
+        selected_breaks = format_break_months(selected_fit, months)
+        one_breaks = format_break_months(one_break_fit, months) if one_break_fit else ""
+
+        for idx, month in enumerate(months):
+            rows.append(
+                {
+                    "metric": metric,
+                    "month": month.strftime("%Y-%m"),
+                    "observed": y[idx],
+                    "fit_bic_selected": selected_fit.yhat[idx],
+                    "fit_no_break": no_break_fit.yhat[idx] if no_break_fit else "",
+                    "fit_one_break": one_break_fit.yhat[idx] if one_break_fit else "",
+                    "bic_selected_model": f"{selected_break_count}_break",
+                    "bic_selected_break_months": selected_breaks,
+                    "one_break_months": one_breaks,
+                }
+            )
+    return rows
+
+
+def plot_global_segmented_fits(fit_df: pd.DataFrame, out_path: Path) -> bool:
+    if fit_df.empty:
+        return False
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - depends on optional plotting stack.
+        logger.warning(f"Skipping global segmented-fit plot: {exc}")
+        return False
+
+    metrics = [m for m in DEFAULT_METRICS if m in set(fit_df["metric"])]
+    if not metrics:
+        return False
+
+    fig, axes = plt.subplots(len(metrics), 1, figsize=(10, 2.1 * len(metrics)), sharex=True)
+    if len(metrics) == 1:
+        axes = [axes]
+
+    event_lines = [
+        ("FPH", EVENTS_CHRONO["A"]),
+        ("PG", EVENTS_CHRONO["B"]),
+        ("GA", EVENTS_CHRONO["C"]),
+        ("TD", EVENTS_CHRONO["D"]),
+    ]
+
+    for ax, metric in zip(axes, metrics):
+        sub = fit_df[fit_df["metric"] == metric].copy()
+        sub["month_dt"] = pd.to_datetime(sub["month"] + "-01", errors="coerce")
+        sub = sub.sort_values("month_dt")
+        ax.plot(sub["month_dt"], sub["observed"], color="#222222", linewidth=1.4, label="Observed")
+        ax.plot(
+            sub["month_dt"],
+            sub["fit_bic_selected"],
+            color="#b03a2e",
+            linewidth=2.0,
+            label="BIC-selected segmented fit",
+        )
+        if "fit_one_break" in sub.columns and pd.to_numeric(sub["fit_one_break"], errors="coerce").notna().any():
+            ax.plot(
+                sub["month_dt"],
+                pd.to_numeric(sub["fit_one_break"], errors="coerce"),
+                color="#2e6db0",
+                linewidth=1.4,
+                linestyle="--",
+                label="Best one-break fit",
+            )
+        for label, event_date in event_lines:
+            ax.axvline(event_date, color="#777777", linestyle=":", linewidth=0.8)
+            if metric == metrics[0]:
+                ax.text(event_date, ax.get_ylim()[1], label, va="bottom", ha="center", fontsize=8)
+        selected_model = sub["bic_selected_model"].iloc[0]
+        selected_breaks = sub["bic_selected_break_months"].iloc[0]
+        suffix = f" ({selected_model}: {selected_breaks or 'none'})"
+        ax.set_ylabel(metric)
+        ax.set_title(metric + suffix, fontsize=10)
+        ax.grid(alpha=0.2)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3, frameon=False)
+    fig.tight_layout(rect=(0, 0.05, 1, 1))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=200)
+    plt.close(fig)
+    return True
+
+
+def append_upgrade_summary(
+    summary_lines: List[str],
+    model_df: pd.DataFrame,
+    split_df: pd.DataFrame,
+    ei_sensitivity_df: pd.DataFrame,
+    metrics: List[str],
+    near_window: int,
+) -> None:
+    summary_lines.append("")
+    summary_lines.append("Model comparison and robustness upgrade")
+    summary_lines.append("=" * 72)
+    if model_df.empty:
+        summary_lines.append("No model-comparison rows were produced.")
+        return
+
+    selected = model_df[model_df["bic_selected"] == True]
+    summary_lines.append("BIC-selected model counts by metric:")
+    for metric in metrics:
+        sub = selected[(selected["metric"] == metric) & (selected["source_definition"] == "event_based")]
+        if sub.empty:
+            continue
+        counts = sub["model"].value_counts().to_dict()
+        parts = ", ".join(f"{model}={count}" for model, count in sorted(counts.items()))
+        summary_lines.append(f"- {metric}: {parts}")
+
+    one_break = model_df[
+        (model_df["model"] == "1_break") & (model_df["source_definition"] == "event_based")
+    ]
+    summary_lines.append("")
+    summary_lines.append(f"Best one-break GA alignment (+/-{near_window} months):")
+    for metric in metrics:
+        sub = one_break[one_break["metric"] == metric]
+        if sub.empty:
+            continue
+        near = int(sub["near_ga_ban_pm_window"].sum())
+        months = ", ".join(sorted(set(str(m) for m in sub["break_months"] if str(m))))
+        summary_lines.append(f"- {metric}: {near}/{len(sub)} near GA; break months={months}")
+
+    if not split_df.empty:
+        summary_lines.append("")
+        summary_lines.append("Fixed split robustness:")
+        ga = split_df[(split_df["candidate_group"] == "event") & (split_df["split_label"] == "GA_Ban")]
+        for metric in metrics:
+            sub = ga[(ga["metric"] == metric) & (ga["valid"] == True)]
+            if sub.empty:
+                continue
+            median_delta = pd.to_numeric(sub["delta_bic_vs_best_one_break"], errors="coerce").median()
+            median_ratio = pd.to_numeric(sub["sse_ratio_vs_best_one_break"], errors="coerce").median()
+            summary_lines.append(
+                f"- {metric}: GA fixed split median Delta BIC vs best one-break={median_delta:.2f}; "
+                f"median SSE ratio vs best one-break={median_ratio:.3f}"
+            )
+
+        summary_lines.append("")
+        summary_lines.append("Best local GA split robustness (GA +/-6 months):")
+        local = split_df[(split_df["candidate_group"] == "ga_local") & (split_df["valid"] == True)]
+        for metric in metrics:
+            sub = local[local["metric"] == metric]
+            if sub.empty:
+                continue
+            med = (
+                sub.groupby("split_label", as_index=False)
+                .agg(
+                    median_delta_bic=("delta_bic_vs_best_one_break", "median"),
+                    median_sse_ratio=("sse_ratio_vs_best_one_break", "median"),
+                )
+                .sort_values("median_delta_bic")
+            )
+            best = med.iloc[0]
+            summary_lines.append(
+                f"- {metric}: best local split={best.split_label}; "
+                f"median Delta BIC={best.median_delta_bic:.2f}; "
+                f"median SSE ratio={best.median_sse_ratio:.3f}"
+            )
+
+    if not ei_sensitivity_df.empty:
+        summary_lines.append("")
+        summary_lines.append("E-I newcomer-definition sensitivity:")
+        ei_one = ei_sensitivity_df[ei_sensitivity_df["model"] == "1_break"]
+        for source in sorted(ei_one["source_definition"].unique()):
+            sub = ei_one[ei_one["source_definition"] == source]
+            near = int(sub["near_ga_ban_pm_window"].sum())
+            months = ", ".join(sorted(set(str(m) for m in sub["break_months"] if str(m))))
+            summary_lines.append(f"- {source}: {near}/{len(sub)} near GA; break months={months}")
+
+    summary_lines.append("")
+    summary_lines.append("Reviewer-facing interpretation:")
+    summary_lines.append(
+        "E-I provides the strongest GA-aligned structural break evidence. "
+        "Toxicity and reputation do not show robust GA-aligned breaks in the "
+        "one-break validation and should be described as gradual or heterogeneous trends."
+    )
+
+
 def main() -> None:
     args = parse_args()
     configure_logging(args.log_level)
 
     communities = args.communities or infer_communities(args.results_dir)
     metrics = [m for m in args.metrics]
+    max_breaks = max(0, min(int(args.max_breaks), 2))
+    if max_breaks != args.max_breaks:
+        logger.warning("Only 0, 1, and 2 break models are supported; using max_breaks=%s", max_breaks)
 
     logger.info(f"Analyzing communities: {communities}")
     logger.info(f"Analyzing metrics: {metrics}")
@@ -441,6 +984,8 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
     results: List[Dict[str, object]] = []
+    model_rows: List[Dict[str, object]] = []
+    split_rows: List[Dict[str, object]] = []
     skipped_series: List[Tuple[str, str, str]] = []
 
     for community, frame in frames.items():
@@ -464,6 +1009,18 @@ def main() -> None:
             res["near_ga_ban_pm_window"] = dist <= args.near_window_months
 
             results.append(res)
+            model_rows.extend(
+                model_comparison_rows(
+                    community,
+                    metric,
+                    "event_based",
+                    frame,
+                    max_breaks,
+                    args.min_segment_months,
+                    args.near_window_months,
+                )
+            )
+            split_rows.extend(split_robustness_rows(community, metric, frame, args.min_segment_months))
 
     out_dir = args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -472,16 +1029,59 @@ def main() -> None:
     results_path = out_dir / "regime_breakpoints.csv"
     results_df.to_csv(results_path, index=False)
 
+    model_df = pd.DataFrame(model_rows)
+    model_path = out_dir / "regime_model_comparison.csv"
+    model_df.to_csv(model_path, index=False)
+
+    split_df = pd.DataFrame(split_rows)
+    split_path = out_dir / "regime_split_robustness.csv"
+    split_df.to_csv(split_path, index=False)
+
+    ei_sensitivity_rows: List[Dict[str, object]] = []
+    ei_definitions = load_ei_definition_frames(frames, out_dir, args.rolling_tenures)
+    for source_definition, source_frames in ei_definitions.items():
+        for community, frame in source_frames.items():
+            ei_sensitivity_rows.extend(
+                model_comparison_rows(
+                    community,
+                    "ei_index",
+                    source_definition,
+                    frame,
+                    max_breaks,
+                    args.min_segment_months,
+                    args.near_window_months,
+                )
+            )
+
+    ei_sensitivity_df = pd.DataFrame(ei_sensitivity_rows)
+    ei_sensitivity_path = out_dir / "regime_ei_definition_sensitivity.csv"
+    ei_sensitivity_df.to_csv(ei_sensitivity_path, index=False)
+
+    global_fit_df = pd.DataFrame()
+    if "global" in frames:
+        global_fit_df = pd.DataFrame(
+            global_fit_rows(frames["global"], metrics, max_breaks, args.min_segment_months)
+        )
+    global_fit_path = out_dir / "regime_global_segmented_fits.csv"
+    global_fit_df.to_csv(global_fit_path, index=False)
+
+    figure_path = args.figure_dir / "regime_global_segmented_fits.png"
+    figure_written = plot_global_segmented_fits(global_fit_df, figure_path)
+
     # Text summary
     summary_lines: List[str] = []
-    summary_lines.append("Regime Breakpoint Analysis (single-break segmented regression)")
+    summary_lines.append("Regime Breakpoint Analysis and Ban-Alignment Validation")
     summary_lines.append("=" * 72)
     summary_lines.append(f"Communities analyzed: {', '.join(sorted(frames.keys()))}")
     summary_lines.append(f"Metrics analyzed: {', '.join(metrics)}")
     summary_lines.append(f"Min segment length: {args.min_segment_months} months")
     summary_lines.append(f"Bootstrap iterations: {args.bootstrap_iterations} (seed={args.seed})")
+    summary_lines.append(f"Model comparison: no break through {max_breaks} breaks; BIC primary, AICc secondary")
     summary_lines.append(
         f"Reference event (GA ban): {EVENTS['B'].date()} (month={EVENTS['B'].strftime('%Y-%m')})"
+    )
+    summary_lines.append(
+        f"Global segmented-fit figure: {figure_path if figure_written else 'not generated'}"
     )
     summary_lines.append("")
 
@@ -491,7 +1091,7 @@ def main() -> None:
         total_series = len(results_df)
         near_total = int(results_df["near_ga_ban_pm_window"].sum())
         summary_lines.append(
-            f"Breaks near GA ban (±{args.near_window_months} months): {near_total}/{total_series}"
+            f"Breaks near GA ban (+/-{args.near_window_months} months): {near_total}/{total_series}"
         )
         summary_lines.append("")
 
@@ -512,12 +1112,21 @@ def main() -> None:
         for row in strong.itertuples(index=False):
             ci_part = ""
             if getattr(row, "ci_low_month", "") and getattr(row, "ci_high_month", ""):
-                ci_part = f", CI≈[{row.ci_low_month},{row.ci_high_month}], stab±3m={row.bootstrap_stability_pm3:.2f}"
+                ci_part = f", CI~[{row.ci_low_month},{row.ci_high_month}], stab+/-3m={row.bootstrap_stability_pm3:.2f}"
             summary_lines.append(
                 f"  {row.community}/{row.metric}: break={row.best_break_month}, "
                 f"pre_slope={row.pre_slope:.4g}, post_slope={row.post_slope:.4g}, "
                 f"SSE_ratio={row.sse_ratio:.3f}{ci_part}"
             )
+
+    append_upgrade_summary(
+        summary_lines,
+        model_df,
+        split_df,
+        ei_sensitivity_df,
+        metrics,
+        args.near_window_months,
+    )
 
     if skipped_load:
         summary_lines.append("")
@@ -535,6 +1144,12 @@ def main() -> None:
     summary_path.write_text("\n".join(summary_lines))
 
     logger.info(f"Wrote breakpoint table to {results_path}")
+    logger.info(f"Wrote model comparison to {model_path}")
+    logger.info(f"Wrote split robustness to {split_path}")
+    logger.info(f"Wrote E-I definition sensitivity to {ei_sensitivity_path}")
+    logger.info(f"Wrote global segmented fits to {global_fit_path}")
+    if figure_written:
+        logger.info(f"Wrote global segmented-fit figure to {figure_path}")
     logger.info(f"Wrote text summary to {summary_path}")
 
 
