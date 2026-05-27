@@ -866,3 +866,77 @@ Verification:
 - Figure integrity checked with PIL:
   - `toxicity_cohort_decomposition_global.png`: `1650 x 1050`, RGBA.
   - `toxicity_weekly_event_window_global.png`: `1800 x 1050`, RGBA.
+
+## 2026-05-27 — TODO 5 statistical interval addendum
+
+Status: `done` for PR evidence; manuscript integration still `planned`.
+
+Reason:
+
+- A statistical-analysis audit concluded that conventional p-values are not the
+  right addition for PR #6 because the monthly and weekly toxicity outputs are
+  temporally ordered and autocorrelated.
+- The appropriate inferential robustness addition is autocorrelation-aware
+  interval estimation for the monthly paired differences.
+
+New analysis added:
+
+- Updated script: `scripts/toxicity_robustness_analysis.py`
+- Updated tests: `tests/test_toxicity_robustness_analysis.py`
+- New compact table:
+  - `results/basic/compare/results/toxicity_monthly_paired_interval_summary.csv`
+
+Methods:
+
+- Moving-block bootstrap mean confidence intervals:
+  - overlapping monthly blocks;
+  - default block length: 6 months;
+  - default iterations: 5,000;
+  - default seed: 2025.
+- HAC/Newey-West mean confidence intervals:
+  - intercept-only mean-difference interval;
+  - default lag: 6 months;
+  - normal approximation.
+- Intervals are reported for two monthly paired-difference families:
+  - activity-weighted minus equal-user mean ToxiGen probability;
+  - newcomer minus existing mean ToxiGen probability.
+
+Key global results:
+
+| Comparison | Series | n months | Mean difference | Lag-1 autocorr. | Effective n | MBB 95% CI | HAC 95% CI |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Activity-weighted minus equal-user | all | 85 | -0.0225 | 0.7749 | 10.78 | [-0.0285, -0.0173] | [-0.0286, -0.0164] |
+| Newcomer minus existing | equal-user | 67 | +0.0100 | 0.3732 | 30.58 | [+0.0023, +0.0192] | [+0.0016, +0.0184] |
+| Newcomer minus existing | activity-weighted | 67 | +0.0433 | 0.6558 | 13.93 | [+0.0355, +0.0523] | [+0.0348, +0.0517] |
+
+Interpretation:
+
+- The intervals support the descriptive PR #6 conclusions while avoiding
+  independence assumptions that would make ordinary t-tests or correlation
+  p-values misleading.
+- Activity-weighted monthly means are consistently lower than equal-user means
+  in the global all-user series, even after accounting for autocorrelation.
+- Newcomer monthly means are modestly higher than existing-user means in the
+  global equal-user series, and more clearly higher under activity weighting.
+- Weekly event-window results should remain descriptive unless a separate
+  event-study or interrupted-time-series model is added.
+
+Manuscript action needed:
+
+- If adding statistical uncertainty to the revision, report these as
+  autocorrelation-aware interval estimates rather than standard p-values.
+- A concise manuscript sentence could be:
+  "Autocorrelation-aware moving-block bootstrap and HAC intervals gave the same
+  qualitative interpretation: activity-weighted monthly means were lower than
+  equal-user means, while newcomer monthly means were modestly higher than
+  existing-user means globally."
+
+Verification:
+
+- `python -m py_compile scripts/toxicity_robustness_analysis.py tests/test_toxicity_robustness_analysis.py`
+- `python -m unittest tests/test_toxicity_robustness_analysis.py`
+- `python scripts/toxicity_robustness_analysis.py --data-dir /home/atomasevic/socio/2025-Reddit-Voat/data --results-root /home/atomasevic/socio/2025-Reddit-Voat/results --skip-figures --log-level INFO`
+- Resource check during update:
+  - memory `12.2 GB / 125.1 GB (11.8%)`;
+  - disk free `27.6 GB` on the current filesystem;
+  - CPU `7.9%`.

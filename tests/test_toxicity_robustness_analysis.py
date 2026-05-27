@@ -3,10 +3,15 @@ import unittest
 import pandas as pd
 
 from scripts.toxicity_robustness_analysis import (
+    ar1_effective_n,
     dynamic_monthly_user_type,
     epoch_to_datetime,
     event_week_index,
+    lag1_autocorrelation,
     monday_week_start,
+    monthly_paired_interval_summary,
+    moving_block_bootstrap_mean_ci,
+    newey_west_mean_ci,
     summarize_with_all_user_type,
     weighted_mean,
 )
@@ -68,6 +73,71 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         self.assertEqual(all_row["active_user_periods"], 2)
         self.assertAlmostEqual(all_row["mean_toxigen_probability_equal_user"], 0.5)
         self.assertAlmostEqual(all_row["mean_toxigen_probability_activity_weighted"], 0.65)
+
+    def test_autocorrelation_interval_helpers_are_deterministic(self):
+        series = pd.Series([1.0, 2.0, 3.0, 4.0])
+
+        self.assertAlmostEqual(lag1_autocorrelation(series), 1.0)
+        self.assertEqual(ar1_effective_n(10, 0.0), 10.0)
+
+        low, high = moving_block_bootstrap_mean_ci(
+            pd.Series([0.5, 0.5, 0.5]),
+            block_length=2,
+            iterations=100,
+            seed=1,
+        )
+        self.assertAlmostEqual(low, 0.5)
+        self.assertAlmostEqual(high, 0.5)
+
+        hac_se, hac_low, hac_high = newey_west_mean_ci(series, max_lag=1)
+        self.assertGreaterEqual(hac_se, 0.0)
+        self.assertLess(hac_low, series.mean())
+        self.assertGreater(hac_high, series.mean())
+
+    def test_monthly_paired_interval_summary_includes_expected_comparisons(self):
+        monthly = pd.DataFrame(
+            {
+                "period_type": ["month"] * 8,
+                "community": ["global"] * 8,
+                "month": ["2020-01", "2020-01", "2020-02", "2020-02"] * 2,
+                "cohort": ["existing", "newcomer", "existing", "newcomer"] * 2,
+                "active_user_periods": [1] * 8,
+                "activity_count": [1] * 8,
+                "mean_toxigen_probability_equal_user": [
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                ],
+                "mean_toxigen_probability_activity_weighted": [
+                    0.2,
+                    0.4,
+                    0.4,
+                    0.6,
+                    0.2,
+                    0.4,
+                    0.4,
+                    0.6,
+                ],
+            }
+        ).drop_duplicates(subset=["community", "month", "cohort"])
+
+        out = monthly_paired_interval_summary(
+            monthly,
+            block_length=2,
+            bootstrap_iterations=100,
+            hac_lags=1,
+            seed=1,
+        )
+
+        self.assertIn("mbb_mean_ci_low", out.columns)
+        self.assertIn("hac_mean_ci_high", out.columns)
+        self.assertIn("activity_weighted_minus_equal_user", set(out["comparison"]))
+        self.assertIn("newcomer_minus_existing", set(out["comparison"]))
 
 
 if __name__ == "__main__":

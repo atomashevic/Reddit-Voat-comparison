@@ -10,6 +10,7 @@ Measurement model:
 Evidence files:
 - `results/basic/compare/results/toxicity_cohort_decomposition_summary.csv`
 - `results/basic/compare/results/toxicity_weighting_comparison_summary.csv`
+- `results/basic/compare/results/toxicity_monthly_paired_interval_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_event_window_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_prepost_change_summary.csv`
 - `results/basic/compare/figures/toxicity_cohort_decomposition_global.png`
@@ -18,6 +19,7 @@ Evidence files:
 Key descriptive results:
 - Equal-user and activity-weighted global monthly estimates are highly aligned (Pearson r=0.9929; mean activity-minus-equal difference=-0.0225).
 - Across global months where both groups are observed, newcomer minus existing equal-user mean ToxiGen probability averages 0.0100 (median 0.0112).
+- Autocorrelation-aware intervals for the global monthly paired differences support the same descriptive interpretation: activity-weighted minus equal-user mean=-0.0225, MBB 95% CI [-0.0285, -0.0173], HAC 95% CI [-0.0286, -0.0164]; newcomer minus existing equal-user mean=0.0100, MBB 95% CI [0.0023, 0.0192], HAC 95% CI [0.0016, 0.0184].
 - Weekly global all-user post-minus-pre changes by event:
   - FPH: equal-user 0.0175; activity-weighted 0.0171.
   - Pizzagate: equal-user 0.0097; activity-weighted 0.0180.

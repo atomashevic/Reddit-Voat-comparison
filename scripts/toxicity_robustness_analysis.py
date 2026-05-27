@@ -60,6 +60,87 @@ def weighted_mean(values: pd.Series, weights: pd.Series) -> float:
     return float(np.average(values.loc[mask], weights=weights.loc[mask]))
 
 
+def clean_numeric(values: pd.Series | np.ndarray) -> np.ndarray:
+    """Return finite numeric values as a one-dimensional array."""
+    array = np.asarray(pd.Series(values), dtype=float)
+    return array[np.isfinite(array)]
+
+
+def lag1_autocorrelation(values: pd.Series | np.ndarray) -> float:
+    """Estimate lag-1 autocorrelation for a paired-difference series."""
+    array = clean_numeric(values)
+    if len(array) < 3:
+        return np.nan
+    return float(pd.Series(array).autocorr(lag=1))
+
+
+def ar1_effective_n(n_obs: int, rho: float) -> float:
+    """Approximate effective sample size under AR(1) autocorrelation."""
+    if n_obs <= 0 or pd.isna(rho) or rho <= -1:
+        return np.nan
+    return float(n_obs * (1 - rho) / (1 + rho))
+
+
+def moving_block_bootstrap_mean_ci(
+    values: pd.Series | np.ndarray,
+    block_length: int = 6,
+    iterations: int = 5000,
+    seed: int = 2025,
+    alpha: float = 0.05,
+) -> tuple[float, float]:
+    """Return percentile CI for the mean using overlapping moving blocks."""
+    array = clean_numeric(values)
+    n_obs = len(array)
+    if n_obs == 0:
+        return np.nan, np.nan
+    if n_obs == 1:
+        return float(array[0]), float(array[0])
+
+    block_length = max(1, min(block_length, n_obs))
+    starts = np.arange(n_obs - block_length + 1)
+    rng = np.random.default_rng(seed)
+    boot_means = np.empty(iterations, dtype=float)
+    for idx in range(iterations):
+        sampled = []
+        while len(sampled) < n_obs:
+            start = int(rng.choice(starts))
+            sampled.extend(array[start : start + block_length])
+        boot_means[idx] = float(np.mean(sampled[:n_obs]))
+
+    lower = float(np.quantile(boot_means, alpha / 2))
+    upper = float(np.quantile(boot_means, 1 - alpha / 2))
+    return lower, upper
+
+
+def newey_west_mean_ci(
+    values: pd.Series | np.ndarray,
+    max_lag: int = 6,
+    alpha: float = 0.05,
+) -> tuple[float, float, float]:
+    """Return HAC/Newey-West SE and normal-approximation CI for the mean."""
+    array = clean_numeric(values)
+    n_obs = len(array)
+    if n_obs == 0:
+        return np.nan, np.nan, np.nan
+    mean = float(np.mean(array))
+    if n_obs == 1:
+        return 0.0, mean, mean
+
+    residuals = array - mean
+    max_lag = max(0, min(max_lag, n_obs - 1))
+    gamma0 = float(np.dot(residuals, residuals) / n_obs)
+    long_run_var = gamma0
+    for lag in range(1, max_lag + 1):
+        weight = 1 - lag / (max_lag + 1)
+        gamma = float(np.dot(residuals[lag:], residuals[:-lag]) / n_obs)
+        long_run_var += 2 * weight * gamma
+
+    long_run_var = max(long_run_var, 0.0)
+    se = float(np.sqrt(long_run_var / n_obs))
+    z = 1.959963984540054
+    return se, mean - z * se, mean + z * se
+
+
 def latest_event_for_month(month_period: pd.Period) -> Event | None:
     """Return the latest ban event whose calendar month is active."""
     current = None
@@ -340,6 +421,104 @@ def weighting_comparison_summary(monthly_summary: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["community", "cohort"])
 
 
+def paired_interval_row(
+    comparison: str,
+    community: str,
+    series_label: str,
+    values: pd.Series | np.ndarray,
+    block_length: int,
+    bootstrap_iterations: int,
+    hac_lags: int,
+    seed: int,
+) -> dict[str, float | int | str]:
+    """Summarize one monthly paired-difference series with robust intervals."""
+    array = clean_numeric(values)
+    n_obs = len(array)
+    mean = float(np.mean(array)) if n_obs else np.nan
+    median = float(np.median(array)) if n_obs else np.nan
+    sd = float(np.std(array, ddof=1)) if n_obs > 1 else np.nan
+    rho = lag1_autocorrelation(array)
+    mbb_low, mbb_high = moving_block_bootstrap_mean_ci(
+        array,
+        block_length=block_length,
+        iterations=bootstrap_iterations,
+        seed=seed,
+    )
+    hac_se, hac_low, hac_high = newey_west_mean_ci(array, max_lag=hac_lags)
+    return {
+        "comparison": comparison,
+        "community": community,
+        "series": series_label,
+        "n_months": n_obs,
+        "mean_difference": mean,
+        "median_difference": median,
+        "sd_difference": sd,
+        "lag1_autocorrelation": rho,
+        "effective_n_ar1": ar1_effective_n(n_obs, rho),
+        "block_length": block_length,
+        "bootstrap_iterations": bootstrap_iterations,
+        "mbb_mean_ci_low": mbb_low,
+        "mbb_mean_ci_high": mbb_high,
+        "hac_lags": hac_lags,
+        "hac_se": hac_se,
+        "hac_mean_ci_low": hac_low,
+        "hac_mean_ci_high": hac_high,
+    }
+
+
+def monthly_paired_interval_summary(
+    monthly_summary: pd.DataFrame,
+    block_length: int,
+    bootstrap_iterations: int,
+    hac_lags: int,
+    seed: int,
+) -> pd.DataFrame:
+    """Create autocorrelation-aware intervals for monthly paired differences."""
+    rows = []
+    ordered = monthly_summary.sort_values(["community", "cohort", "month"])
+
+    for (community, cohort), group in ordered.groupby(["community", "cohort"]):
+        diff = (
+            group["mean_toxigen_probability_activity_weighted"]
+            - group["mean_toxigen_probability_equal_user"]
+        )
+        rows.append(
+            paired_interval_row(
+                comparison="activity_weighted_minus_equal_user",
+                community=community,
+                series_label=cohort,
+                values=diff,
+                block_length=block_length,
+                bootstrap_iterations=bootstrap_iterations,
+                hac_lags=hac_lags,
+                seed=seed,
+            )
+        )
+
+    for community, group in ordered.groupby("community"):
+        for column, label in [
+            ("mean_toxigen_probability_equal_user", "equal_user"),
+            ("mean_toxigen_probability_activity_weighted", "activity_weighted"),
+        ]:
+            wide = group.pivot_table(index="month", columns="cohort", values=column)
+            if {"newcomer", "existing"}.issubset(wide.columns):
+                diff = wide["newcomer"] - wide["existing"]
+                rows.append(
+                    paired_interval_row(
+                        comparison="newcomer_minus_existing",
+                        community=community,
+                        series_label=label,
+                        values=diff,
+                        block_length=block_length,
+                        bootstrap_iterations=bootstrap_iterations,
+                        hac_lags=hac_lags,
+                        seed=seed,
+                    )
+                )
+
+    return pd.DataFrame(rows).sort_values(["comparison", "community", "series"])
+
+
 def weekly_prepost_change_summary(weekly_summary: pd.DataFrame) -> pd.DataFrame:
     rows = []
     group_cols = ["community", "event_key", "event_label", "event_date", "cohort"]
@@ -466,6 +645,7 @@ def write_review_note(
     output_path: Path,
     monthly_summary: pd.DataFrame,
     weighting_summary: pd.DataFrame,
+    interval_summary: pd.DataFrame,
     prepost_summary: pd.DataFrame,
     results_dir: Path,
     figures_dir: Path,
@@ -482,6 +662,16 @@ def write_review_note(
     )
     monthly_delta = monthly_wide["newcomer"] - monthly_wide["existing"]
     monthly_delta = monthly_delta.dropna()
+    global_activity_interval = interval_summary[
+        (interval_summary["comparison"] == "activity_weighted_minus_equal_user")
+        & (interval_summary["community"] == "global")
+        & (interval_summary["series"] == "all")
+    ].iloc[0]
+    global_newcomer_interval = interval_summary[
+        (interval_summary["comparison"] == "newcomer_minus_existing")
+        & (interval_summary["community"] == "global")
+        & (interval_summary["series"] == "equal_user")
+    ].iloc[0]
 
     prepost_global = prepost_summary[
         (prepost_summary["community"] == "global") & (prepost_summary["cohort"] == "all")
@@ -513,6 +703,7 @@ def write_review_note(
         "Evidence files:",
         f"- `{display_path(results_dir / 'toxicity_cohort_decomposition_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weighting_comparison_summary.csv')}`",
+        f"- `{display_path(results_dir / 'toxicity_monthly_paired_interval_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_event_window_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_prepost_change_summary.csv')}`",
         f"- `{display_path(figures_dir / 'toxicity_cohort_decomposition_global.png')}`",
@@ -529,6 +720,21 @@ def write_review_note(
             "- Across global months where both groups are observed, newcomer minus existing "
             f"equal-user mean ToxiGen probability averages {format_float(monthly_delta.mean())} "
             f"(median {format_float(monthly_delta.median())})."
+        ),
+        (
+            "- Autocorrelation-aware intervals for the global monthly paired differences "
+            "support the same descriptive interpretation: activity-weighted minus "
+            f"equal-user mean={format_float(global_activity_interval['mean_difference'])}, "
+            f"MBB 95% CI [{format_float(global_activity_interval['mbb_mean_ci_low'])}, "
+            f"{format_float(global_activity_interval['mbb_mean_ci_high'])}], "
+            f"HAC 95% CI [{format_float(global_activity_interval['hac_mean_ci_low'])}, "
+            f"{format_float(global_activity_interval['hac_mean_ci_high'])}]; "
+            "newcomer minus existing equal-user "
+            f"mean={format_float(global_newcomer_interval['mean_difference'])}, "
+            f"MBB 95% CI [{format_float(global_newcomer_interval['mbb_mean_ci_low'])}, "
+            f"{format_float(global_newcomer_interval['mbb_mean_ci_high'])}], "
+            f"HAC 95% CI [{format_float(global_newcomer_interval['hac_mean_ci_low'])}, "
+            f"{format_float(global_newcomer_interval['hac_mean_ci_high'])}]."
         ),
         "- Weekly global all-user post-minus-pre changes by event:",
     ]
@@ -585,6 +791,10 @@ def parse_args() -> argparse.Namespace:
         default=REPO_ROOT / "results" / "basic" / "compare" / "figures",
     )
     parser.add_argument("--window-weeks", type=int, default=8)
+    parser.add_argument("--interval-block-length", type=int, default=6)
+    parser.add_argument("--interval-bootstrap-iterations", type=int, default=5000)
+    parser.add_argument("--interval-hac-lags", type=int, default=6)
+    parser.add_argument("--interval-seed", type=int, default=2025)
     parser.add_argument("--skip-figures", action="store_true")
     parser.add_argument("--log-level", default="INFO")
     return parser.parse_args()
@@ -628,16 +838,25 @@ def main() -> None:
     monthly_summary = monthly_cohort_decomposition(monthly_users)
     weekly_summary = weekly_event_window_summary(weekly_users)
     weighting_summary = weighting_comparison_summary(monthly_summary)
+    interval_summary = monthly_paired_interval_summary(
+        monthly_summary=monthly_summary,
+        block_length=args.interval_block_length,
+        bootstrap_iterations=args.interval_bootstrap_iterations,
+        hac_lags=args.interval_hac_lags,
+        seed=args.interval_seed,
+    )
     prepost_summary = weekly_prepost_change_summary(weekly_summary)
 
     monthly_path = args.output_dir / "toxicity_cohort_decomposition_summary.csv"
     weighting_path = args.output_dir / "toxicity_weighting_comparison_summary.csv"
+    interval_path = args.output_dir / "toxicity_monthly_paired_interval_summary.csv"
     weekly_path = args.output_dir / "toxicity_weekly_event_window_summary.csv"
     prepost_path = args.output_dir / "toxicity_weekly_prepost_change_summary.csv"
     note_path = args.output_dir / "toxicity_review_response.md"
 
     monthly_summary.to_csv(monthly_path, index=False)
     weighting_summary.to_csv(weighting_path, index=False)
+    interval_summary.to_csv(interval_path, index=False)
     weekly_summary.to_csv(weekly_path, index=False)
     prepost_summary.to_csv(prepost_path, index=False)
 
@@ -655,6 +874,7 @@ def main() -> None:
         output_path=note_path,
         monthly_summary=monthly_summary,
         weighting_summary=weighting_summary,
+        interval_summary=interval_summary,
         prepost_summary=prepost_summary,
         results_dir=args.output_dir,
         figures_dir=args.figures_dir,
