@@ -1,12 +1,14 @@
-Regime Breakpoint Analysis (single-break segmented regression)
+Regime Breakpoint Analysis and Ban-Alignment Validation
 ========================================================================
 Communities analyzed: funny, gaming, gifs, global, pics, technology, videos
 Metrics analyzed: toxicity_mean, ei_index, existing_gini, reputation_mean, degree_assortativity
 Min segment length: 6 months
 Bootstrap iterations: 200 (seed=2025)
+Model comparison: no break through 2 breaks; BIC primary, AICc secondary
 Reference event (GA ban): 2018-09-12 (month=2018-09)
+Global segmented-fit figure: /home/socio/2025-Reddit-Voat/results/basic/compare/figures/regime_global_segmented_fits.png
 
-Breaks near GA ban (±3 months): 6/35
+Breaks near GA ban (+/-3 months): 6/35
 
 - toxicity_mean: 0/7 near GA; break months observed: 2015-02, 2018-04, 2018-05, 2019-02, 2020-03; median SSE ratio=0.604
 - ei_index: 5/7 near GA; break months observed: 2017-02, 2018-10, 2019-01; median SSE ratio=0.358
@@ -15,11 +17,50 @@ Breaks near GA ban (±3 months): 6/35
 - degree_assortativity: 0/7 near GA; break months observed: 2015-01, 2015-03, 2015-05, 2015-06, 2015-07, 2015-09; median SSE ratio=0.464
 
 Strongest breaks (lowest SSE ratio):
-  global/existing_gini: break=2015-07, pre_slope=0.02227, post_slope=-0.002936, SSE_ratio=0.080, CI≈[2015-07,2015-07], stab±3m=1.00
-  funny/existing_gini: break=2015-07, pre_slope=0.01315, post_slope=-0.002285, SSE_ratio=0.133, CI≈[2015-07,2015-07], stab±3m=1.00
-  videos/existing_gini: break=2015-07, pre_slope=0.03087, post_slope=-0.003534, SSE_ratio=0.163, CI≈[2015-07,2015-07], stab±3m=1.00
-  pics/existing_gini: break=2015-07, pre_slope=0.02459, post_slope=-0.003668, SSE_ratio=0.181, CI≈[2015-07,2015-07], stab±3m=1.00
-  technology/existing_gini: break=2015-07, pre_slope=0.02219, post_slope=-0.002982, SSE_ratio=0.227, CI≈[2015-07,2015-07], stab±3m=1.00
-  technology/degree_assortativity: break=2015-07, pre_slope=0.02834, post_slope=-0.003709, SSE_ratio=0.275, CI≈[2015-05,2016-02], stab±3m=0.79
-  global/ei_index: break=2018-10, pre_slope=-0.01323, post_slope=-0.001863, SSE_ratio=0.285, CI≈[2018-10,2018-10], stab±3m=1.00
-  videos/ei_index: break=2018-10, pre_slope=-0.01166, post_slope=0.0004806, SSE_ratio=0.286, CI≈[2018-10,2018-10], stab±3m=1.00
+  global/existing_gini: break=2015-07, pre_slope=0.02227, post_slope=-0.002936, SSE_ratio=0.080, CI~[2015-07,2015-07], stab+/-3m=1.00
+  funny/existing_gini: break=2015-07, pre_slope=0.01315, post_slope=-0.002285, SSE_ratio=0.133, CI~[2015-07,2015-07], stab+/-3m=1.00
+  videos/existing_gini: break=2015-07, pre_slope=0.03087, post_slope=-0.003534, SSE_ratio=0.163, CI~[2015-07,2015-07], stab+/-3m=1.00
+  pics/existing_gini: break=2015-07, pre_slope=0.02459, post_slope=-0.003668, SSE_ratio=0.181, CI~[2015-07,2015-07], stab+/-3m=1.00
+  technology/existing_gini: break=2015-07, pre_slope=0.02219, post_slope=-0.002982, SSE_ratio=0.227, CI~[2015-07,2015-07], stab+/-3m=1.00
+  technology/degree_assortativity: break=2015-07, pre_slope=0.02834, post_slope=-0.003709, SSE_ratio=0.275, CI~[2015-05,2016-02], stab+/-3m=0.79
+  global/ei_index: break=2018-10, pre_slope=-0.01323, post_slope=-0.001863, SSE_ratio=0.285, CI~[2018-10,2018-10], stab+/-3m=1.00
+  videos/ei_index: break=2018-10, pre_slope=-0.01166, post_slope=0.0004806, SSE_ratio=0.286, CI~[2018-10,2018-10], stab+/-3m=1.00
+
+Model comparison and robustness upgrade
+========================================================================
+BIC-selected model counts by metric:
+- toxicity_mean: 1_break=3, 2_break=4
+- ei_index: 2_break=7
+- existing_gini: 2_break=7
+- reputation_mean: 2_break=7
+- degree_assortativity: 1_break=6, 2_break=1
+
+Best one-break GA alignment (+/-3 months):
+- toxicity_mean: 0/7 near GA; break months=2015-02, 2018-04, 2018-05, 2019-02, 2020-03
+- ei_index: 5/7 near GA; break months=2017-02, 2018-10, 2019-01
+- existing_gini: 0/7 near GA; break months=2015-07
+- reputation_mean: 1/7 near GA; break months=2014-11, 2015-01, 2015-08, 2016-05, 2016-06, 2016-10, 2018-07
+- degree_assortativity: 0/7 near GA; break months=2015-01, 2015-03, 2015-05, 2015-06, 2015-07, 2015-09
+
+Fixed split robustness:
+- toxicity_mean: GA fixed split median Delta BIC vs best one-break=6.20; median SSE ratio vs best one-break=1.080
+- ei_index: GA fixed split median Delta BIC vs best one-break=14.23; median SSE ratio vs best one-break=1.241
+- existing_gini: GA fixed split median Delta BIC vs best one-break=89.20; median SSE ratio vs best one-break=3.188
+- reputation_mean: GA fixed split median Delta BIC vs best one-break=23.71; median SSE ratio vs best one-break=1.353
+- degree_assortativity: GA fixed split median Delta BIC vs best one-break=50.96; median SSE ratio vs best one-break=1.922
+
+Best local GA split robustness (GA +/-6 months):
+- toxicity_mean: best local split=GA_minus_04m; median Delta BIC=3.06; median SSE ratio=1.037
+- ei_index: best local split=GA_plus_01m; median Delta BIC=0.00; median SSE ratio=1.000
+- existing_gini: best local split=GA_minus_06m; median Delta BIC=74.42; median SSE ratio=2.565
+- reputation_mean: best local split=GA_minus_01m; median Delta BIC=21.10; median SSE ratio=1.346
+- degree_assortativity: best local split=GA_minus_06m; median Delta BIC=45.56; median SSE ratio=1.793
+
+E-I newcomer-definition sensitivity:
+- event_based: 5/7 near GA; break months=2017-02, 2018-10, 2019-01
+- rolling_tenure_12m: 0/7 near GA; break months=2016-03, 2016-07, 2016-08, 2016-09, 2017-02
+- rolling_tenure_3m: 0/7 near GA; break months=2014-12, 2015-01, 2015-04, 2015-10, 2015-12
+- rolling_tenure_6m: 0/7 near GA; break months=2015-04, 2016-01, 2016-02
+
+Reviewer-facing interpretation:
+E-I provides the strongest GA-aligned structural break evidence. Toxicity and reputation do not show robust GA-aligned breaks in the one-break validation and should be described as gradual or heterogeneous trends.
