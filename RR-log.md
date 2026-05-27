@@ -936,6 +936,90 @@ Verification:
 - `python -m py_compile scripts/toxicity_robustness_analysis.py tests/test_toxicity_robustness_analysis.py`
 - `python -m unittest tests/test_toxicity_robustness_analysis.py`
 - `python scripts/toxicity_robustness_analysis.py --data-dir /home/atomasevic/socio/2025-Reddit-Voat/data --results-root /home/atomasevic/socio/2025-Reddit-Voat/results --skip-figures --log-level INFO`
+
+## 2026-05-27 — TODO 5 cross-platform toxicity-ratio uncertainty
+
+Status: `done` for PR evidence; manuscript integration still `planned`.
+
+Reason:
+
+- Reviewer R1-S1 asked for confidence intervals or explicit descriptive
+  framing for cross-platform toxicity ratios.
+- Reviewer R2-6 also cautioned that Reddit should not be treated as a causal
+  baseline because the platforms differ in moderation, user base, and scale.
+- This addendum keeps the ratios descriptive while adding uncertainty intervals
+  that account for monthly temporal dependence.
+
+Verbatim comments covered:
+
+> S1. Add confidence intervals or explicit descriptive framing to the cross-platform toxicity ratios. The point ratios in Table 1 lack an inferential framing; either add intervals or mark the comparison as descriptive, consistent with the reframing in E1.
+
+> You compare Voat vs Reddit toxicity. Problem is platforms differ in:
+> --moderation
+> --user base
+> --scale
+> Required explicitly state this is not a controlled comparison and avoid implying Reddit is causal baseline.
+
+New analysis added:
+
+- Updated script: `scripts/toxicity_robustness_analysis.py`
+- Updated tests: `tests/test_toxicity_robustness_analysis.py`
+- New compact table:
+  - `results/basic/compare/results/toxicity_cross_platform_ratio_uncertainty.csv`
+- Updated response note:
+  - `results/basic/compare/results/toxicity_review_response.md`
+
+Methods:
+
+- Input series: monthly mean ToxiGen probabilities from
+  `results/voat/<community>/voat_<community>_monthly_aggregates.csv` and
+  `results/reddit/<community>/reddit_<community>_monthly_aggregates.csv`.
+- Main ratio definition matches the existing Table 1/effect-size artifact:
+  mean Voat monthly ToxiGen probability divided by mean Reddit monthly ToxiGen
+  probability over all available months.
+- Uncertainty for all-available-month ratios uses independent moving-block
+  bootstrap resampling within each platform's monthly series.
+- A paired overlapping-month sensitivity is also reported:
+  - paired moving-block bootstrap for the ratio of monthly means;
+  - HAC/Newey-West interval on the mean log monthly ratio, exponentiated as a
+    geometric monthly ratio interval.
+- These are uncertainty intervals around descriptive platform contrasts, not
+  causal estimates of a Reddit counterfactual.
+
+All-available-month ratio results:
+
+| Community | Voat/Reddit ratio | MBB 95% CI |
+|---|---:|---:|
+| funny | 1.6095 | [1.2874, 1.8794] |
+| gaming | 1.4350 | [1.0651, 1.8100] |
+| gifs | 1.3866 | [1.1037, 1.6806] |
+| pics | 1.3892 | [1.0471, 1.7470] |
+| technology | 0.9842 | [0.7658, 1.2180] |
+| videos | 1.3780 | [1.0995, 1.6708] |
+
+Interpretation:
+
+- Five of six all-available-month Voat/Reddit toxicity ratios remain above 1
+  under moving-block bootstrap intervals.
+- Technology remains the clear exception: its interval includes 1.0 and the
+  point ratio is approximately parity.
+- Paired overlapping-month HAC intervals are wider and often include 1.0,
+  which reinforces that these should be presented as descriptive contrasts
+  rather than strong inferential claims about a causal platform effect.
+
+Manuscript action needed:
+
+- In the table caption or note, label cross-platform toxicity ratios as
+  descriptive Voat/Reddit contrasts.
+- Add the MBB intervals for the ratio table, or refer to them in a supplement.
+- State near the comparison that Reddit is a matched reference series, not a
+  controlled causal baseline.
+
+Verification:
+
+- `python -m py_compile scripts/toxicity_robustness_analysis.py tests/test_toxicity_robustness_analysis.py`
+- `python -m unittest tests/test_toxicity_robustness_analysis.py`
+- `python scripts/toxicity_robustness_analysis.py --data-dir /home/atomasevic/socio/2025-Reddit-Voat/data --results-root /home/atomasevic/socio/2025-Reddit-Voat/results --skip-figures --log-level INFO`
 - Resource check during update:
   - memory `12.2 GB / 125.1 GB (11.8%)`;
   - disk free `27.6 GB` on the current filesystem;

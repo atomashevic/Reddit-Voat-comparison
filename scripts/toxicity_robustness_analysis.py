@@ -71,6 +71,8 @@ def lag1_autocorrelation(values: pd.Series | np.ndarray) -> float:
     array = clean_numeric(values)
     if len(array) < 3:
         return np.nan
+    if np.nanstd(array) == 0:
+        return np.nan
     return float(pd.Series(array).autocorr(lag=1))
 
 
@@ -109,6 +111,62 @@ def moving_block_bootstrap_mean_ci(
 
     lower = float(np.quantile(boot_means, alpha / 2))
     upper = float(np.quantile(boot_means, 1 - alpha / 2))
+    return lower, upper
+
+
+def moving_block_bootstrap_ratio_ci(
+    numerator: pd.Series | np.ndarray,
+    denominator: pd.Series | np.ndarray,
+    block_length: int = 6,
+    iterations: int = 5000,
+    seed: int = 2025,
+    alpha: float = 0.05,
+    paired: bool = False,
+) -> tuple[float, float]:
+    """Return percentile CI for a mean ratio using moving-block bootstrap."""
+    num = clean_numeric(numerator)
+    den = clean_numeric(denominator)
+    if len(num) == 0 or len(den) == 0:
+        return np.nan, np.nan
+    if paired and len(num) != len(den):
+        raise ValueError("Paired ratio bootstrap requires equal-length arrays")
+
+    rng = np.random.default_rng(seed)
+    ratio_samples = np.empty(iterations, dtype=float)
+
+    def draw_series(array: np.ndarray) -> np.ndarray:
+        n_obs = len(array)
+        local_block = max(1, min(block_length, n_obs))
+        starts = np.arange(n_obs - local_block + 1)
+        sampled = []
+        while len(sampled) < n_obs:
+            start = int(rng.choice(starts))
+            sampled.extend(array[start : start + local_block])
+        return np.asarray(sampled[:n_obs], dtype=float)
+
+    for idx in range(iterations):
+        if paired:
+            n_obs = len(num)
+            local_block = max(1, min(block_length, n_obs))
+            starts = np.arange(n_obs - local_block + 1)
+            sampled_idx = []
+            while len(sampled_idx) < n_obs:
+                start = int(rng.choice(starts))
+                sampled_idx.extend(range(start, start + local_block))
+            sampled_idx = np.asarray(sampled_idx[:n_obs], dtype=int)
+            sampled_num = num[sampled_idx]
+            sampled_den = den[sampled_idx]
+        else:
+            sampled_num = draw_series(num)
+            sampled_den = draw_series(den)
+        den_mean = float(np.mean(sampled_den))
+        ratio_samples[idx] = float(np.mean(sampled_num) / den_mean) if den_mean > 0 else np.nan
+
+    ratio_samples = ratio_samples[np.isfinite(ratio_samples)]
+    if len(ratio_samples) == 0:
+        return np.nan, np.nan
+    lower = float(np.quantile(ratio_samples, alpha / 2))
+    upper = float(np.quantile(ratio_samples, 1 - alpha / 2))
     return lower, upper
 
 
@@ -186,6 +244,35 @@ def find_user_month_metrics(results_root: Path, community: str) -> Path:
     if path is None:
         raise FileNotFoundError(f"Missing user-month metrics for {community}: {candidates}")
     return path
+
+
+def find_monthly_aggregates(results_root: Path, platform: str, community: str) -> Path:
+    filename = f"{platform}_{community}_monthly_aggregates.csv"
+    candidates = [
+        results_root / platform / community / filename,
+        REPO_ROOT / "results" / platform / community / filename,
+    ]
+    path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if path is None:
+        raise FileNotFoundError(
+            f"Missing monthly aggregates for {platform}/{community}: {candidates}"
+        )
+    return path
+
+
+def load_platform_toxicity_monthly(
+    results_root: Path,
+    platform: str,
+    community: str,
+) -> pd.DataFrame:
+    path = find_monthly_aggregates(results_root, platform, community)
+    df = pd.read_csv(path, usecols=["month", "toxicity_mean"])
+    df["community"] = community
+    df["platform"] = platform
+    df["month"] = df["month"].astype(str)
+    df["month_period"] = pd.PeriodIndex(df["month"], freq="M")
+    df["toxicity_mean"] = pd.to_numeric(df["toxicity_mean"], errors="coerce")
+    return df.dropna(subset=["toxicity_mean"]).sort_values("month_period")
 
 
 def load_raw_activity(data_dir: Path, community: str) -> pd.DataFrame:
@@ -629,6 +716,103 @@ def monthly_paired_interval_summary(
     return pd.DataFrame(rows).sort_values(["comparison", "community", "series"])
 
 
+def cross_platform_ratio_uncertainty(
+    results_root: Path,
+    communities: list[str],
+    block_length: int,
+    bootstrap_iterations: int,
+    hac_lags: int,
+    seed: int,
+) -> pd.DataFrame:
+    """Estimate uncertainty for Voat/Reddit monthly mean toxicity ratios."""
+    rows = []
+    for community_index, community in enumerate(communities):
+        voat = load_platform_toxicity_monthly(results_root, "voat", community)
+        reddit = load_platform_toxicity_monthly(results_root, "reddit", community)
+        voat_values = voat["toxicity_mean"]
+        reddit_values = reddit["toxicity_mean"]
+        voat_mean = float(voat_values.mean())
+        reddit_mean = float(reddit_values.mean())
+        all_low, all_high = moving_block_bootstrap_ratio_ci(
+            voat_values,
+            reddit_values,
+            block_length=block_length,
+            iterations=bootstrap_iterations,
+            seed=seed + community_index,
+            paired=False,
+        )
+        rows.append(
+            {
+                "community": community,
+                "comparison_scope": "all_available_months",
+                "n_voat_months": int(voat_values.notna().sum()),
+                "n_reddit_months": int(reddit_values.notna().sum()),
+                "n_paired_months": np.nan,
+                "voat_mean_toxigen_probability": voat_mean,
+                "reddit_mean_toxigen_probability": reddit_mean,
+                "toxicity_ratio_voat_over_reddit": voat_mean / reddit_mean,
+                "geometric_mean_monthly_ratio": np.nan,
+                "lag1_log_ratio_autocorrelation": np.nan,
+                "block_length": block_length,
+                "bootstrap_iterations": bootstrap_iterations,
+                "mbb_ratio_ci_low": all_low,
+                "mbb_ratio_ci_high": all_high,
+                "hac_lags": hac_lags,
+                "hac_log_ratio_se": np.nan,
+                "hac_geometric_ratio_ci_low": np.nan,
+                "hac_geometric_ratio_ci_high": np.nan,
+            }
+        )
+
+        paired = voat[["month", "toxicity_mean"]].merge(
+            reddit[["month", "toxicity_mean"]],
+            on="month",
+            how="inner",
+            suffixes=("_voat", "_reddit"),
+        )
+        paired = paired[
+            (paired["toxicity_mean_voat"] > 0) & (paired["toxicity_mean_reddit"] > 0)
+        ].copy()
+        log_ratio = np.log(paired["toxicity_mean_voat"] / paired["toxicity_mean_reddit"])
+        paired_low, paired_high = moving_block_bootstrap_ratio_ci(
+            paired["toxicity_mean_voat"],
+            paired["toxicity_mean_reddit"],
+            block_length=block_length,
+            iterations=bootstrap_iterations,
+            seed=seed + 1000 + community_index,
+            paired=True,
+        )
+        hac_se, hac_low, hac_high = newey_west_mean_ci(log_ratio, max_lag=hac_lags)
+        rows.append(
+            {
+                "community": community,
+                "comparison_scope": "overlapping_months_paired",
+                "n_voat_months": int(paired["toxicity_mean_voat"].notna().sum()),
+                "n_reddit_months": int(paired["toxicity_mean_reddit"].notna().sum()),
+                "n_paired_months": int(len(paired)),
+                "voat_mean_toxigen_probability": float(paired["toxicity_mean_voat"].mean()),
+                "reddit_mean_toxigen_probability": float(
+                    paired["toxicity_mean_reddit"].mean()
+                ),
+                "toxicity_ratio_voat_over_reddit": float(
+                    paired["toxicity_mean_voat"].mean()
+                    / paired["toxicity_mean_reddit"].mean()
+                ),
+                "geometric_mean_monthly_ratio": float(np.exp(log_ratio.mean())),
+                "lag1_log_ratio_autocorrelation": lag1_autocorrelation(log_ratio),
+                "block_length": block_length,
+                "bootstrap_iterations": bootstrap_iterations,
+                "mbb_ratio_ci_low": paired_low,
+                "mbb_ratio_ci_high": paired_high,
+                "hac_lags": hac_lags,
+                "hac_log_ratio_se": hac_se,
+                "hac_geometric_ratio_ci_low": float(np.exp(hac_low)),
+                "hac_geometric_ratio_ci_high": float(np.exp(hac_high)),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["community", "comparison_scope"])
+
+
 def ratio(numerator: float, denominator: float) -> float:
     if pd.isna(numerator) or pd.isna(denominator) or denominator == 0:
         return np.nan
@@ -820,6 +1004,7 @@ def write_review_note(
     monthly_summary: pd.DataFrame,
     weighting_summary: pd.DataFrame,
     interval_summary: pd.DataFrame,
+    cross_platform_ratio_summary: pd.DataFrame,
     prepost_summary: pd.DataFrame,
     activity_spike_summary: pd.DataFrame,
     results_dir: Path,
@@ -847,6 +1032,11 @@ def write_review_note(
         & (interval_summary["community"] == "global")
         & (interval_summary["series"] == "equal_user")
     ].iloc[0]
+    all_month_ratios = cross_platform_ratio_summary[
+        cross_platform_ratio_summary["comparison_scope"] == "all_available_months"
+    ].copy()
+    above_one = int((all_month_ratios["mbb_ratio_ci_low"] > 1.0).sum())
+    total_ratio_rows = int(len(all_month_ratios))
 
     prepost_global = prepost_summary[
         (prepost_summary["community"] == "global") & (prepost_summary["cohort"] == "all")
@@ -884,6 +1074,7 @@ def write_review_note(
         f"- `{display_path(results_dir / 'toxicity_cohort_decomposition_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weighting_comparison_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_monthly_paired_interval_summary.csv')}`",
+        f"- `{display_path(results_dir / 'toxicity_cross_platform_ratio_uncertainty.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_event_window_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_prepost_change_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_activity_spike_summary.csv')}`",
@@ -916,6 +1107,13 @@ def write_review_note(
             f"{format_float(global_newcomer_interval['mbb_mean_ci_high'])}], "
             f"HAC 95% CI [{format_float(global_newcomer_interval['hac_mean_ci_low'])}, "
             f"{format_float(global_newcomer_interval['hac_mean_ci_high'])}]."
+        ),
+        (
+            "- Cross-platform Voat/Reddit mean ToxiGen probability ratios remain "
+            "descriptive rather than causal. Moving-block bootstrap intervals for "
+            "all available months place "
+            f"{above_one}/{total_ratio_rows} community ratios above 1.0; "
+            "technology is the exception where the interval includes 1.0."
         ),
         "- Weekly global all-user post-minus-pre changes by event:",
     ]
@@ -950,6 +1148,11 @@ def write_review_note(
                 "- R2-5 / PDF M7: cite Hartvigsen et al. (2022) for ToxiGen "
                 "validation and explicitly acknowledge platform/domain-shift "
                 "limits; no manual validation sample was added."
+            ),
+            (
+                "- R1-S1/R2-6: report uncertainty for cross-platform toxicity "
+                "ratios and state that Reddit is a descriptive reference series, "
+                "not a causal baseline."
             ),
             (
                 "- R2-7.1: use the monthly newcomer-vs-existing decomposition "
@@ -1053,12 +1256,23 @@ def main() -> None:
         hac_lags=args.interval_hac_lags,
         seed=args.interval_seed,
     )
+    cross_platform_ratio_summary = cross_platform_ratio_uncertainty(
+        results_root=args.results_root,
+        communities=args.communities,
+        block_length=args.interval_block_length,
+        bootstrap_iterations=args.interval_bootstrap_iterations,
+        hac_lags=args.interval_hac_lags,
+        seed=args.interval_seed,
+    )
     prepost_summary = weekly_prepost_change_summary(weekly_summary)
     activity_spike_summary = weekly_activity_spike_summary(weekly_activity_summary)
 
     monthly_path = args.output_dir / "toxicity_cohort_decomposition_summary.csv"
     weighting_path = args.output_dir / "toxicity_weighting_comparison_summary.csv"
     interval_path = args.output_dir / "toxicity_monthly_paired_interval_summary.csv"
+    cross_platform_ratio_path = (
+        args.output_dir / "toxicity_cross_platform_ratio_uncertainty.csv"
+    )
     weekly_path = args.output_dir / "toxicity_weekly_event_window_summary.csv"
     prepost_path = args.output_dir / "toxicity_weekly_prepost_change_summary.csv"
     activity_spike_path = args.output_dir / "toxicity_weekly_activity_spike_summary.csv"
@@ -1067,6 +1281,7 @@ def main() -> None:
     monthly_summary.to_csv(monthly_path, index=False)
     weighting_summary.to_csv(weighting_path, index=False)
     interval_summary.to_csv(interval_path, index=False)
+    cross_platform_ratio_summary.to_csv(cross_platform_ratio_path, index=False)
     weekly_summary.to_csv(weekly_path, index=False)
     prepost_summary.to_csv(prepost_path, index=False)
     activity_spike_summary.to_csv(activity_spike_path, index=False)
@@ -1086,6 +1301,7 @@ def main() -> None:
         monthly_summary=monthly_summary,
         weighting_summary=weighting_summary,
         interval_summary=interval_summary,
+        cross_platform_ratio_summary=cross_platform_ratio_summary,
         prepost_summary=prepost_summary,
         activity_spike_summary=activity_spike_summary,
         results_dir=args.output_dir,

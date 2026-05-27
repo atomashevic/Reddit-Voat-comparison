@@ -4,6 +4,7 @@ import pandas as pd
 
 from scripts.toxicity_robustness_analysis import (
     ar1_effective_n,
+    cross_platform_ratio_uncertainty,
     dynamic_monthly_user_type,
     epoch_to_datetime,
     event_week_index,
@@ -11,6 +12,7 @@ from scripts.toxicity_robustness_analysis import (
     monday_week_start,
     monthly_paired_interval_summary,
     moving_block_bootstrap_mean_ci,
+    moving_block_bootstrap_ratio_ci,
     newey_west_mean_ci,
     weekly_activity_spike_summary,
     weekly_activity_window_summary,
@@ -90,6 +92,16 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         )
         self.assertAlmostEqual(low, 0.5)
         self.assertAlmostEqual(high, 0.5)
+
+        ratio_low, ratio_high = moving_block_bootstrap_ratio_ci(
+            pd.Series([2.0, 2.0, 2.0]),
+            pd.Series([1.0, 1.0, 1.0]),
+            block_length=2,
+            iterations=100,
+            seed=1,
+        )
+        self.assertAlmostEqual(ratio_low, 2.0)
+        self.assertAlmostEqual(ratio_high, 2.0)
 
         hac_se, hac_low, hac_high = newey_west_mean_ci(series, max_lag=1)
         self.assertGreaterEqual(hac_se, 0.0)
@@ -184,6 +196,45 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(row["post_pre_activity_ratio"], 3.0)
         self.assertAlmostEqual(row["event_pre_activity_ratio"], 4.5)
         self.assertEqual(row["max_post_week_index"], 0)
+
+    def test_cross_platform_ratio_uncertainty_reads_monthly_aggregates(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for platform, values in {
+                "voat": [0.20, 0.20, 0.20],
+                "reddit": [0.10, 0.10, 0.10],
+            }.items():
+                out_dir = root / platform / "funny"
+                out_dir.mkdir(parents=True)
+                pd.DataFrame(
+                    {
+                        "month": ["2020-01", "2020-02", "2020-03"],
+                        "toxicity_mean": values,
+                    }
+                ).to_csv(out_dir / f"{platform}_funny_monthly_aggregates.csv", index=False)
+
+            out = cross_platform_ratio_uncertainty(
+                results_root=root,
+                communities=["funny"],
+                block_length=2,
+                bootstrap_iterations=100,
+                hac_lags=1,
+                seed=1,
+            )
+
+        self.assertEqual(set(out["comparison_scope"]), {
+            "all_available_months",
+            "overlapping_months_paired",
+        })
+        all_row = out[out["comparison_scope"] == "all_available_months"].iloc[0]
+        paired_row = out[out["comparison_scope"] == "overlapping_months_paired"].iloc[0]
+        self.assertAlmostEqual(all_row["toxicity_ratio_voat_over_reddit"], 2.0)
+        self.assertAlmostEqual(paired_row["geometric_mean_monthly_ratio"], 2.0)
+        self.assertAlmostEqual(all_row["mbb_ratio_ci_low"], 2.0)
+        self.assertAlmostEqual(paired_row["hac_geometric_ratio_ci_high"], 2.0)
 
 
 if __name__ == "__main__":

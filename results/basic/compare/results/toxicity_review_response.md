@@ -11,6 +11,7 @@ Evidence files:
 - `results/basic/compare/results/toxicity_cohort_decomposition_summary.csv`
 - `results/basic/compare/results/toxicity_weighting_comparison_summary.csv`
 - `results/basic/compare/results/toxicity_monthly_paired_interval_summary.csv`
+- `results/basic/compare/results/toxicity_cross_platform_ratio_uncertainty.csv`
 - `results/basic/compare/results/toxicity_weekly_event_window_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_prepost_change_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_activity_spike_summary.csv`
@@ -21,6 +22,7 @@ Key descriptive results:
 - Equal-user and activity-weighted global monthly estimates are highly aligned (Pearson r=0.9929; mean activity-minus-equal difference=-0.0225).
 - Across global months where both groups are observed, newcomer minus existing equal-user mean ToxiGen probability averages 0.0100 (median 0.0112).
 - Autocorrelation-aware intervals for the global monthly paired differences support the same descriptive interpretation: activity-weighted minus equal-user mean=-0.0225, MBB 95% CI [-0.0285, -0.0173], HAC 95% CI [-0.0286, -0.0164]; newcomer minus existing equal-user mean=0.0100, MBB 95% CI [0.0023, 0.0192], HAC 95% CI [0.0016, 0.0184].
+- Cross-platform Voat/Reddit mean ToxiGen probability ratios remain descriptive rather than causal. Moving-block bootstrap intervals for all available months place 5/6 community ratios above 1.0; technology is the exception where the interval includes 1.0.
 - Weekly global all-user post-minus-pre changes by event:
   - FPH: equal-user 0.0175; activity-weighted 0.0171.
   - Pizzagate: equal-user 0.0097; activity-weighted 0.0180.
@@ -36,6 +38,7 @@ Reviewer-response framing:
 - R1-M3: report both equal-user and activity-weighted mean ToxiGen probabilities and state whether the two estimands align.
 - R1-M7: replace `toxicity doubled` with `mean ToxiGen classifier probability approximately doubled`.
 - R2-5 / PDF M7: cite Hartvigsen et al. (2022) for ToxiGen validation and explicitly acknowledge platform/domain-shift limits; no manual validation sample was added.
+- R1-S1/R2-6: report uncertainty for cross-platform toxicity ratios and state that Reddit is a descriptive reference series, not a causal baseline.
 - R2-7.1: use the monthly newcomer-vs-existing decomposition as the cohort toxicity evidence.
 - R2-7.2: use the weekly event-window table/figure as the short-term post-ban evidence.
 - R2-4: use the weekly activity-spike table to answer whether there were immediate post-ban volume spikes around each event.
