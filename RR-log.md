@@ -671,3 +671,198 @@ The RR response and manuscript revision need compact cross-community summaries,
 the two figures, and reproducible code. The per-user/per-month detail tables are
 useful for debugging but are not necessary evidence for the reviewer response
 and would make the PR noisier.
+
+## 2026-05-27 — TODO 5 toxicity robustness and validation
+
+Status: `done` for analysis and response planning; manuscript integration still
+`planned`.
+
+Scope:
+
+- This entry connects the overlapping toxicity comments into one
+  non-redundant robustness package:
+  - R1/PDF M3: report activity-weighted toxicity alongside equal-user means.
+  - R1/PDF M7: qualify the "toxicity doubled" statement.
+  - R2-5: add toxicity validation evidence.
+  - R2-7.1: add newcomer vs existing toxicity decomposition.
+  - R2-7.2: add weekly short-window post-ban dynamics.
+- Per the current work goal, this entry records new analysis and response
+  evidence without changing the manuscript.
+
+Verbatim comments:
+
+> M3. Report activity-weighted toxicity alongside the equal-weighted measure. Toxicity is aggregated as an unweighted mean of per-user monthly means, such that each user contributes equally regardless of posting volume (Methods, Toxicity Detection, Para. 2). An activity-weighted version would better capture the discourse a typical reader encounters, and the comparison would give speak to RQ2: if elevated toxicity is driven by a few highly active users who remain peripheral in the reply network, the two weightings will diverge, and equal weighting would obscure exactly that signal. Please report both, and ideally discuss any insight from alignment or divergence of these two measurements.
+
+> M7. Qualify the “toxicity doubled” statement. The doubling refers to a mean ToxiGen probability rising from about 0.12 to about 0.24 (Results, Platform Dynamics, Para. 6; Results, Case Study, Para. 4). If I understand correctly, this is a mean classifier probability rather than a proportion of toxic content, and therefore “doubled” should be qualified to avoid implying that content became twice as toxic.
+
+> Add validation sample manual annotation or cite validation on similar platforms
+
+> 5.1 Cohort Toxicity Decomposition
+> newcomer vs existing user toxicity over time
+
+> 5.2 Short-Term Post-Ban Dynamics
+> weekly (not monthly) analysis around bans
+
+New analysis added:
+
+- New script: `scripts/toxicity_robustness_analysis.py`
+- New tests: `tests/test_toxicity_robustness_analysis.py`
+- New compact tables:
+  - `results/basic/compare/results/toxicity_cohort_decomposition_summary.csv`
+  - `results/basic/compare/results/toxicity_weighting_comparison_summary.csv`
+  - `results/basic/compare/results/toxicity_weekly_event_window_summary.csv`
+  - `results/basic/compare/results/toxicity_weekly_prepost_change_summary.csv`
+- New response note:
+  - `results/basic/compare/results/toxicity_review_response.md`
+- New figures:
+  - `results/basic/compare/figures/toxicity_cohort_decomposition_global.png`
+  - `results/basic/compare/figures/toxicity_weekly_event_window_global.png`
+
+Measurement model:
+
+- Latent construct: toxic, hateful, abusive, or demeaning discourse.
+- Observed input: Voat posts and comments with timestamps and user IDs.
+- Instrument output: RoBERTa ToxiGen probability in `[0, 1]`.
+- Noise/error: domain shift, coded Voat-specific language, calibration drift,
+  subgroup bias, and aggregation choices.
+- Downstream estimand: longitudinal changes in mean ToxiGen probabilities, not
+  manually observed toxicity prevalence.
+
+Analysis details:
+
+- Monthly cohort decomposition uses event-period dynamic labels:
+  - users first seen on/after the current chronological ban event are
+    `newcomer`;
+  - users first seen before that event are `existing`;
+  - event months are treated as post-event months, but exact first-seen
+    timestamps decide whether a user is before or after the event date.
+- Weekly event windows use Monday-start event weeks from `-8` to `+8` around
+  each ban event.
+- Equal-user estimate: mean of active user-period mean ToxiGen probabilities.
+- Activity-weighted estimate: user-period mean ToxiGen probabilities weighted
+  by activity count, equivalent to the mean probability for a typical observed
+  post/comment in that period.
+- Validation route chosen for this TODO: citation-only, not manual annotation.
+  The manuscript should cite Hartvigsen et al. (2022) and explicitly retain the
+  domain-shift limitation for Voat-specific language.
+
+Key results:
+
+- Output scale:
+  - monthly cohort decomposition: 1,620 rows.
+  - weighting comparison: 21 community/cohort rows.
+  - weekly event-window table: 1,202 rows.
+  - weekly pre/post summary: 84 rows.
+- Equal-user and activity-weighted global monthly series are highly aligned:
+  - global all-user Pearson `r = 0.9929`.
+  - mean activity-minus-equal difference `-0.0225`.
+  - median absolute difference `0.0254`.
+  - activity-weighted estimates are higher than equal-user estimates in only
+    `5.9%` of global months.
+- Per-community all-user equal/activity correlations are also high:
+  - funny `r = 0.9775`
+  - gaming `r = 0.9687`
+  - gifs `r = 0.9764`
+  - pics `r = 0.9884`
+  - technology `r = 0.9720`
+  - videos `r = 0.9791`
+- Activity weighting is generally lower than equal-user weighting:
+  - mean activity-minus-equal ranges from `-0.0167` (funny) to `-0.0325`
+    (videos).
+  - This does not support the concern that a few highly active users alone are
+    inflating equal-user toxicity; if anything, higher-volume content is
+    slightly less toxic on average, while the two trajectories remain aligned.
+- Global newcomer vs existing monthly decomposition:
+  - newcomer minus existing equal-user mean ToxiGen probability averages
+    `+0.0100` across 67 months where both are observed.
+  - median difference is `+0.0112`.
+  - newcomer probability is higher in `68.7%` of those global months.
+  - Community heterogeneity: funny `+0.0224`, gaming `+0.0045`, gifs
+    `+0.0341`, pics `+0.0208`, technology `-0.0089`, videos `+0.0102`.
+  - Technology is the exception: newcomers are slightly lower than existing
+    users on this measure.
+- Weekly global all-user post-minus-pre changes:
+  - FPH: equal-user `+0.0175`; activity-weighted `+0.0171`.
+  - Pizzagate: equal-user `+0.0097`; activity-weighted `+0.0180`.
+  - GreatAwakening: equal-user `+0.0138`; activity-weighted `+0.0092`.
+  - The_Donald: equal-user `+0.0084`; activity-weighted `+0.0072`.
+  - These short windows show modest post-event increases, but they should be
+    interpreted descriptively because the earlier breakpoint analysis found
+    that the long-run toxicity trajectory is gradual rather than sharply
+    GA-aligned.
+
+Unified response draft:
+
+We agree that the toxicity analysis should distinguish user-weighted and
+activity-weighted estimands, should decompose newcomer and existing user
+toxicity over time, and should not describe ToxiGen probabilities as directly
+observed toxicity prevalence. We added a toxicity robustness analysis that
+reports monthly newcomer/existing decomposition and weekly event-window
+estimates, each with both equal-user and activity-weighted mean ToxiGen
+probabilities.
+
+The results show that activity weighting does not overturn the original
+toxicity pattern. The global equal-user and activity-weighted monthly series
+are highly correlated (`r = 0.9929`), and the same broad longitudinal pattern
+appears under both estimands. Activity-weighted means are generally lower than
+equal-user means, indicating that the elevated equal-user estimates are not
+simply an artifact of a small number of highly active toxic posters. Newcomers
+are modestly higher than existing users in the global monthly decomposition
+(mean difference `+0.0100`), though this varies by community and reverses in
+technology. Weekly event windows show small post-ban increases after each event,
+but these are descriptive short-window changes rather than evidence of abrupt
+long-run toxicity breaks.
+
+For validation, we will cite the original ToxiGen validation paper
+\citep{hartvigsen2022toxigen} and explicitly state that ToxiGen provides a
+classifier probability, not a manual toxicity label. Because we did not add a
+manual annotation sample in this revision package, the manuscript should retain
+and strengthen the limitation that Voat-specific coded language and
+longitudinal drift may affect calibration.
+
+Response by reviewer/editor item:
+
+- R1/PDF M3: addressed by adding activity-weighted toxicity alongside
+  equal-user-weighted toxicity in monthly and weekly outputs. The two estimands
+  are highly aligned; activity-weighted values are usually lower.
+- R1/PDF M7: addressed in response plan by changing "toxicity doubled" to
+  "mean ToxiGen classifier probability approximately doubled." This must be
+  implemented in the manuscript.
+- R2-5: addressed by citation-based validation and explicit measurement
+  limitation. No manual validation sample was added.
+- R2-7.1: addressed by monthly newcomer vs existing toxicity decomposition.
+- R2-7.2: addressed by weekly `-8` to `+8` event-window analysis.
+
+Manuscript action needed:
+
+- `paper/main.tex:69`: replace "toxicity doubled" in the Abstract with
+  "mean ToxiGen classifier probability approximately doubled" or remove the
+  doubling shorthand.
+- `paper/main.tex:176-178`: revise the Methods language so ToxiGen is framed
+  as a classifier probability instrument; add activity-weighted aggregation as
+  a robustness estimand.
+- `paper/main.tex:242`: replace "Mean toxicity ... effectively doubling" with
+  "Mean ToxiGen classifier probability rose from ..." and describe the increase
+  as a model-score change.
+- `paper/main.tex:246`: update the table caption from "mean toxicity scores" to
+  "mean ToxiGen classifier probabilities" and mark cross-platform ratios as
+  descriptive.
+- Add a short Results paragraph after the platform-dynamics toxicity paragraph:
+  activity-weighted and equal-user trajectories align; newcomers are modestly
+  higher than existing users globally, with technology as an exception; weekly
+  event windows show modest post-event increases.
+- `paper/main.tex:372`: strengthen the existing ToxiGen limitation by noting
+  that validation is citation-based and no Voat-specific manual calibration was
+  performed.
+- `paper/main.tex:374`: remove or qualify the final "toxicity doubled" claim
+  and avoid using it as evidence of convergence unless phrased as mean ToxiGen
+  probability.
+
+Verification:
+
+- `python -m py_compile scripts/toxicity_robustness_analysis.py tests/test_toxicity_robustness_analysis.py`
+- `python -m unittest tests/test_toxicity_robustness_analysis.py`
+- `python scripts/toxicity_robustness_analysis.py --data-dir /home/atomasevic/socio/2025-Reddit-Voat/data --results-root /home/atomasevic/socio/2025-Reddit-Voat/results --log-level INFO`
+- Figure integrity checked with PIL:
+  - `toxicity_cohort_decomposition_global.png`: `1650 x 1050`, RGBA.
+  - `toxicity_weekly_event_window_global.png`: `1800 x 1050`, RGBA.
