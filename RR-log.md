@@ -671,3 +671,125 @@ The RR response and manuscript revision need compact cross-community summaries,
 the two figures, and reproducible code. The per-user/per-month detail tables are
 useful for debugging but are not necessary evidence for the reviewer response
 and would make the PR noisier.
+## 2026-05-27 — TODO 3 consolidated mechanism clarification
+
+Status: `done` for response planning; manuscript integration still `planned`.
+
+Scope:
+
+- This entry connects three overlapping reviewer/editor concerns into one
+  non-redundant manuscript revision:
+  - R1 point 1: peripheral influence is supported but not proven.
+  - PDF E2: marginalization and hub-rate baseline.
+  - PDF S3: degree-share ratio should be the primary newcomer-centrality evidence.
+- Per the current work goal, this entry records the response plan and evidence
+  without changing the manuscript.
+
+Verbatim comments:
+
+> You claim “transformation occurred through peripheral dynamics rather than hub capture”. But what you actually show is low newcomer hub rate, rising toxicity, and cohort segregation patterns. This is consistent with peripheral influence, but does not prove it.
+
+> E2. Temper the “newcomers remained structurally marginalized” claim to match the cohort design, and state the baseline for the hub rate. The Results state that newcomers “remained structurally marginalized” despite numerical dominance (Results, Platform Dynamics, Para. 4), and the Discussion concludes that fewer than 5% of newcomers achieved central positions (Discussion, Para. 2). The cohort definition makes this hard to claim as written: because labels reset at each ban—a Newcomer in one period becomes Existing in the next (Methods, User Cohort Partitioning)—a post-ban arrival who rose into the core in a later period would be relabeled Existing before that shift in network position could be observed. The design therefore cannot establish that arrivals remained permanently peripheral. The figure also lacks an interpretive anchor: Supplementary Table 2 shows a consistent and more compelling pattern at every threshold where newcomers are consistently below the population-equality baseline at every hub threshold tested (3.3% vs. 10%; 7.1% vs. 20%; 1.4% vs. 5%).
+>
+> Revision needed: state the roughly 10% equality baseline so the hub rate is interpretable, and foreground the degree-share ratio more clearly in the text and figure (Figure 1, panel 5; null = 1.0). Revise the “structurally marginalized” language to a claim the design supports. For example, you might say that within each inter-ban period newcomers were under-represented among high-degree users relative to their population share.
+>
+> Encouraged (not required): a longitudinal analysis that tracks arrival cohorts across period boundaries would directly test the marginalization claim and substantially strengthen the mechanism argument (RQ2). By following users who first appeared after a given ban to see whether they later reach core or hub status, you could more clearly establish whether newcomers remain marginalized and yet are still able to influence the platform’s social norms. I encourage it but do not require it for acceptance.
+
+> S3. Promote the degree-share ratio to the primary newcomer-centrality evidence in the Discussion. It is better constructed than the raw hub rate (related to E2). [Discussion, Para. 2; Figure 1, panel 5.]
+
+Unified response draft:
+
+We agree. The original mechanism language was too strong because low average
+newcomer hub rates, rising toxicity, and cohort segregation are consistent with
+peripheral or cohort-volume influence but do not prove that peripheral users
+caused the transformation. We therefore will revise the manuscript to state that
+the evidence is inconsistent with broad hub capture and consistent with a
+heterogeneous cohort-volume mechanism. Degree-share ratio will be the primary
+structural-representation metric, with the null baseline stated explicitly as
+1.0, meaning proportional representation by population share. Hub rate will be
+reported as supporting evidence, with the equality baseline stated explicitly:
+because hubs are defined as the top 10% of users by degree, proportional
+representation would imply a 10% hub rate.
+
+The new fixed-cohort analysis also shows that the blanket permanent
+marginalization claim should be removed. Early FPH-PG and PG-GA arrival cohorts
+approached proportional degree representation, whereas later GA-TD and
+TD-shutdown cohorts were more consistently under-represented. High-activity
+arrivals were substantially more likely to become hubs than average arrivals,
+so the revised mechanism should not describe all newcomers as uniformly
+peripheral.
+
+Evidence:
+
+- Existing dynamic-period Figure 1 evidence already reports degree-share ratio:
+  - Early periods: 0.84-0.92.
+  - After GA: 0.66-0.76.
+  - After TD: 0.57-0.72.
+  - Interpretation baseline: 1.0 = degree share proportional to population share.
+- Fixed-cohort evidence:
+  - `results/basic/compare/results/fixed_cohort_structural_ascent_summary.csv`
+  - `results/basic/compare/results/fixed_cohort_review_response.md`
+  - `results/basic/compare/figures/fixed_cohort_degree_share_ratio.png`
+- Cross-community fixed-cohort medians:
+  - `fph_pg` median degree-share ratio: 0.9755.
+  - `pg_ga` median degree-share ratio: 0.9761.
+  - `ga_td` median degree-share ratio: 0.7684.
+  - `td_shutdown` median degree-share ratio: 0.6576.
+- User-level ever-hub rates:
+  - `fph_pg`: average 0.0958, high-activity 0.3170.
+  - `pg_ga`: average 0.0775, high-activity 0.2111.
+  - `ga_td`: average 0.0650, high-activity 0.1959.
+  - `td_shutdown`: average 0.0465, high-activity 0.1899.
+
+Single manuscript action set:
+
+- Replace "transformation occurred through peripheral dynamics rather than hub
+  capture" with a qualified claim such as:
+  "The evidence does not support broad hub capture and is instead consistent
+  with a heterogeneous cohort-volume mechanism: average post-ban cohorts rarely
+  dominated hub positions, but high-activity arrivals were much more likely to
+  become structurally influential."
+- Replace "newcomers remained structurally marginalized" and any permanent
+  marginalization claim with:
+  "Within event-period labels, newcomers were under-represented among
+  high-degree users relative to their population share. Fixed-cohort tracking
+  qualifies this pattern: early FPH-PG and PG-GA cohorts later approached
+  proportional degree representation, whereas later GA-TD and TD-shutdown
+  cohorts remained more consistently under-represented."
+- Make degree-share ratio the lead metric in Results, Discussion, and the
+  Figure 1 caption:
+  "Degree-share ratio equals newcomer degree share divided by newcomer
+  population share; 1.0 is the proportional-representation null."
+- Keep hub rate as secondary evidence and add the baseline:
+  "Because hubs are defined as the top 10% of users by degree, the population
+  equality baseline is 10%."
+- Avoid proof language:
+  - Use "consistent with", "suggests", "does not support broad hub capture",
+    and "heterogeneous mechanism".
+  - Avoid "proves", "rules out", "made hubs irrelevant", and "permanent
+    marginalization".
+
+Suggested integrated narrative:
+
+> The results do not show a simple hub-capture process. Degree-share ratios
+> provide the clearest evidence: relative to the 1.0 proportional-representation
+> baseline, event-period newcomers were often under-represented in network
+> degree, especially after GA and TD. Fixed-cohort tracking qualifies the
+> stronger marginalization claim, however, because early FPH-PG and PG-GA
+> cohorts later approached proportional degree representation. Hub rates provide
+> secondary evidence: with hubs defined as the top 10% of users by degree, the
+> equality baseline is 10%, and average post-ban ever-hub rates were generally
+> near or below that level. High-activity arrivals were an important exception,
+> reaching hub status at much higher rates. Taken together, the evidence is
+> inconsistent with broad newcomer hub capture and is consistent with a
+> heterogeneous cohort-volume mechanism, but it does not prove peripheral
+> causation.
+
+Manuscript locations to edit later:
+
+- Abstract mechanism sentence.
+- Introduction RQ2 paragraph.
+- Figure 1 caption and Platform Dynamics results paragraph.
+- Discussion paragraphs on "hostile takeover", "toxic equilibrium", and RQ2.
+- Policy/conclusion paragraphs that currently say transformation operated
+  through peripheral volume.
