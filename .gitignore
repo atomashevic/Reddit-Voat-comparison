@@ -6,6 +6,7 @@ tmp_*.png
 # Local-only / archival material (kept in working tree but not versioned)
 backups/
 backup/
+RR-log.md
 
 # Paper repository (separate git repo)
 paper/
