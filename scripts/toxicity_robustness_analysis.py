@@ -44,6 +44,79 @@ EVENTS_CHRONO = [
 ]
 EVENT_ORDER = {event.key: idx for idx, event in enumerate(EVENTS_CHRONO)}
 
+DETOXIFY_TOXIGEN_VOAT_CORRELATION_ROWS = [
+    {
+        "scope": "global",
+        "stratum": "all",
+        "interaction_scope": "all_posts",
+        "n": 368727,
+        "toxigen_mean": 0.1310526318820479,
+        "detoxify_toxicity_mean": 0.11246919885691226,
+        "pearson_correlation": 0.6934661463038952,
+        "spearman_correlation": 0.6528439004959846,
+    },
+    {
+        "scope": "global",
+        "stratum": "all",
+        "interaction_scope": "all_comments",
+        "n": 785746,
+        "toxigen_mean": 0.2371615694104965,
+        "detoxify_toxicity_mean": 0.21051561986885042,
+        "pearson_correlation": 0.7152660982621826,
+        "spearman_correlation": 0.7375314519978158,
+    },
+    {
+        "scope": "global",
+        "stratum": "all",
+        "interaction_scope": "stratified_1k_post_sample",
+        "n": 1000,
+        "toxigen_mean": 0.1317735356219928,
+        "detoxify_toxicity_mean": 0.12016866478830343,
+        "pearson_correlation": 0.7283850595598949,
+        "spearman_correlation": 0.6436328068370456,
+    },
+    {
+        "scope": "community_type",
+        "stratum": "controversial",
+        "interaction_scope": "all_posts",
+        "n": 190973,
+        "toxigen_mean": 0.18616230670797662,
+        "detoxify_toxicity_mean": 0.15562981408489795,
+        "pearson_correlation": 0.6787963931181817,
+        "spearman_correlation": 0.6941907613604735,
+    },
+    {
+        "scope": "community_type",
+        "stratum": "normal",
+        "interaction_scope": "all_posts",
+        "n": 177754,
+        "toxigen_mean": 0.0718446257019783,
+        "detoxify_toxicity_mean": 0.06609886585774422,
+        "pearson_correlation": 0.6931070231540164,
+        "spearman_correlation": 0.5549688233201702,
+    },
+    {
+        "scope": "community_type",
+        "stratum": "controversial",
+        "interaction_scope": "all_comments",
+        "n": 521609,
+        "toxigen_mean": 0.24599206260183484,
+        "detoxify_toxicity_mean": 0.2124978994964396,
+        "pearson_correlation": 0.7000165029403245,
+        "spearman_correlation": 0.7365740128829038,
+    },
+    {
+        "scope": "community_type",
+        "stratum": "normal",
+        "interaction_scope": "all_comments",
+        "n": 264137,
+        "toxigen_mean": 0.21972340390153405,
+        "detoxify_toxicity_mean": 0.20660107970875485,
+        "pearson_correlation": 0.7467027228754816,
+        "spearman_correlation": 0.7339074158472455,
+    },
+]
+
 
 def epoch_to_datetime(values: pd.Series) -> pd.Series:
     """Convert epoch seconds or milliseconds to naive pandas timestamps."""
@@ -999,12 +1072,18 @@ def format_float(value: float) -> str:
     return f"{value:.4f}"
 
 
+def detoxify_toxigen_voat_correlation_summary() -> pd.DataFrame:
+    """Return supplementary Voat Detoxify/ToxiGen convergent-validity summary."""
+    return pd.DataFrame(DETOXIFY_TOXIGEN_VOAT_CORRELATION_ROWS)
+
+
 def write_review_note(
     output_path: Path,
     monthly_summary: pd.DataFrame,
     weighting_summary: pd.DataFrame,
     interval_summary: pd.DataFrame,
     cross_platform_ratio_summary: pd.DataFrame,
+    detoxify_toxigen_summary: pd.DataFrame,
     prepost_summary: pd.DataFrame,
     activity_spike_summary: pd.DataFrame,
     results_dir: Path,
@@ -1037,6 +1116,20 @@ def write_review_note(
     ].copy()
     above_one = int((all_month_ratios["mbb_ratio_ci_low"] > 1.0).sum())
     total_ratio_rows = int(len(all_month_ratios))
+
+    detoxify_global = detoxify_toxigen_summary[
+        (detoxify_toxigen_summary["scope"] == "global")
+        & (detoxify_toxigen_summary["stratum"] == "all")
+    ].copy()
+    detoxify_posts = detoxify_global[
+        detoxify_global["interaction_scope"] == "all_posts"
+    ].iloc[0]
+    detoxify_comments = detoxify_global[
+        detoxify_global["interaction_scope"] == "all_comments"
+    ].iloc[0]
+    detoxify_sample = detoxify_global[
+        detoxify_global["interaction_scope"] == "stratified_1k_post_sample"
+    ].iloc[0]
 
     prepost_global = prepost_summary[
         (prepost_summary["community"] == "global") & (prepost_summary["cohort"] == "all")
@@ -1075,6 +1168,7 @@ def write_review_note(
         f"- `{display_path(results_dir / 'toxicity_weighting_comparison_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_monthly_paired_interval_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_cross_platform_ratio_uncertainty.csv')}`",
+        f"- `{display_path(results_dir / 'toxicity_detoxify_toxigen_voat_correlation_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_event_window_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_prepost_change_summary.csv')}`",
         f"- `{display_path(results_dir / 'toxicity_weekly_activity_spike_summary.csv')}`",
@@ -1115,6 +1209,19 @@ def write_review_note(
             f"{above_one}/{total_ratio_rows} community ratios above 1.0; "
             "technology is the exception where the interval includes 1.0."
         ),
+        (
+            "- Supplementary convergent-validity check: on Voat, Detoxify unbiased "
+            "toxicity scores are strongly positively associated with ToxiGen "
+            f"probabilities for all posts (n={int(detoxify_posts['n']):,}, "
+            f"Pearson r={format_float(detoxify_posts['pearson_correlation'])}, "
+            f"Spearman rho={format_float(detoxify_posts['spearman_correlation'])}), "
+            f"all comments (n={int(detoxify_comments['n']):,}, "
+            f"Pearson r={format_float(detoxify_comments['pearson_correlation'])}, "
+            f"Spearman rho={format_float(detoxify_comments['spearman_correlation'])}), "
+            "and a stratified 1k post sample "
+            f"(Pearson r={format_float(detoxify_sample['pearson_correlation'])}, "
+            f"Spearman rho={format_float(detoxify_sample['spearman_correlation'])})."
+        ),
         "- Weekly global all-user post-minus-pre changes by event:",
     ]
     for _, row in prepost_global.sort_values("event_order").iterrows():
@@ -1147,7 +1254,9 @@ def write_review_note(
             (
                 "- R2-5 / PDF M7: cite Hartvigsen et al. (2022) for ToxiGen "
                 "validation and explicitly acknowledge platform/domain-shift "
-                "limits; no manual validation sample was added."
+                "limits; add the Detoxify/ToxiGen Voat correlation table as "
+                "supplementary convergent-validity evidence. This is not a "
+                "manual gold-standard validation sample."
             ),
             (
                 "- R1-S1/R2-6: report uncertainty for cross-platform toxicity "
@@ -1264,6 +1373,7 @@ def main() -> None:
         hac_lags=args.interval_hac_lags,
         seed=args.interval_seed,
     )
+    detoxify_toxigen_summary = detoxify_toxigen_voat_correlation_summary()
     prepost_summary = weekly_prepost_change_summary(weekly_summary)
     activity_spike_summary = weekly_activity_spike_summary(weekly_activity_summary)
 
@@ -1272,6 +1382,9 @@ def main() -> None:
     interval_path = args.output_dir / "toxicity_monthly_paired_interval_summary.csv"
     cross_platform_ratio_path = (
         args.output_dir / "toxicity_cross_platform_ratio_uncertainty.csv"
+    )
+    detoxify_toxigen_path = (
+        args.output_dir / "toxicity_detoxify_toxigen_voat_correlation_summary.csv"
     )
     weekly_path = args.output_dir / "toxicity_weekly_event_window_summary.csv"
     prepost_path = args.output_dir / "toxicity_weekly_prepost_change_summary.csv"
@@ -1282,6 +1395,7 @@ def main() -> None:
     weighting_summary.to_csv(weighting_path, index=False)
     interval_summary.to_csv(interval_path, index=False)
     cross_platform_ratio_summary.to_csv(cross_platform_ratio_path, index=False)
+    detoxify_toxigen_summary.to_csv(detoxify_toxigen_path, index=False)
     weekly_summary.to_csv(weekly_path, index=False)
     prepost_summary.to_csv(prepost_path, index=False)
     activity_spike_summary.to_csv(activity_spike_path, index=False)
@@ -1302,6 +1416,7 @@ def main() -> None:
         weighting_summary=weighting_summary,
         interval_summary=interval_summary,
         cross_platform_ratio_summary=cross_platform_ratio_summary,
+        detoxify_toxigen_summary=detoxify_toxigen_summary,
         prepost_summary=prepost_summary,
         activity_spike_summary=activity_spike_summary,
         results_dir=args.output_dir,

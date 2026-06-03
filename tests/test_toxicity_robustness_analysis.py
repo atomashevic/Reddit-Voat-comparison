@@ -5,6 +5,7 @@ import pandas as pd
 from scripts.toxicity_robustness_analysis import (
     ar1_effective_n,
     cross_platform_ratio_uncertainty,
+    detoxify_toxigen_voat_correlation_summary,
     dynamic_monthly_user_type,
     epoch_to_datetime,
     event_week_index,
@@ -235,6 +236,31 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(paired_row["geometric_mean_monthly_ratio"], 2.0)
         self.assertAlmostEqual(all_row["mbb_ratio_ci_low"], 2.0)
         self.assertAlmostEqual(paired_row["hac_geometric_ratio_ci_high"], 2.0)
+
+    def test_detoxify_toxigen_summary_includes_voat_stability_checks(self):
+        out = detoxify_toxigen_voat_correlation_summary()
+
+        self.assertEqual(len(out), 7)
+        self.assertEqual(set(out["scope"]), {"global", "community_type"})
+        self.assertEqual(set(out["stratum"]), {"all", "controversial", "normal"})
+
+        posts = out[
+            (out["scope"] == "global")
+            & (out["stratum"] == "all")
+            & (out["interaction_scope"] == "all_posts")
+        ].iloc[0]
+        comments = out[
+            (out["scope"] == "global")
+            & (out["stratum"] == "all")
+            & (out["interaction_scope"] == "all_comments")
+        ].iloc[0]
+        sample = out[out["interaction_scope"] == "stratified_1k_post_sample"].iloc[0]
+
+        self.assertEqual(posts["n"], 368727)
+        self.assertEqual(comments["n"], 785746)
+        self.assertAlmostEqual(posts["pearson_correlation"], 0.6934661463038952)
+        self.assertAlmostEqual(comments["spearman_correlation"], 0.7375314519978158)
+        self.assertAlmostEqual(sample["pearson_correlation"], 0.7283850595598949)
 
 
 if __name__ == "__main__":
