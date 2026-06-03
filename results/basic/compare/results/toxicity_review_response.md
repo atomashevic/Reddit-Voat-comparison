@@ -12,12 +12,12 @@ Evidence files:
 - `results/basic/compare/results/toxicity_weighting_comparison_summary.csv`
 - `results/basic/compare/results/toxicity_monthly_paired_interval_summary.csv`
 - `results/basic/compare/results/toxicity_cross_platform_ratio_uncertainty.csv`
-- `results/basic/compare/results/toxicity_detoxify_toxigen_voat_correlation_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_event_window_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_prepost_change_summary.csv`
 - `results/basic/compare/results/toxicity_weekly_activity_spike_summary.csv`
 - `results/basic/compare/figures/toxicity_cohort_decomposition_global.png`
 - `results/basic/compare/figures/toxicity_weekly_event_window_global.png`
+- `results/basic/compare/results/toxicity_detoxify_toxigen_voat_correlation_summary.csv`
 
 Key descriptive results:
 - Equal-user and activity-weighted global monthly estimates are highly aligned (Pearson r=0.9929; mean activity-minus-equal difference=-0.0225).

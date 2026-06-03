@@ -5,11 +5,11 @@ import pandas as pd
 from scripts.toxicity_robustness_analysis import (
     ar1_effective_n,
     cross_platform_ratio_uncertainty,
-    detoxify_toxigen_voat_correlation_summary,
     dynamic_monthly_user_type,
     epoch_to_datetime,
     event_week_index,
     lag1_autocorrelation,
+    load_detoxify_toxigen_summary,
     monday_week_start,
     monthly_paired_interval_summary,
     moving_block_bootstrap_mean_ci,
@@ -237,30 +237,36 @@ class ToxicityRobustnessAnalysisTests(unittest.TestCase):
         self.assertAlmostEqual(all_row["mbb_ratio_ci_low"], 2.0)
         self.assertAlmostEqual(paired_row["hac_geometric_ratio_ci_high"], 2.0)
 
-    def test_detoxify_toxigen_summary_includes_voat_stability_checks(self):
-        out = detoxify_toxigen_voat_correlation_summary()
+    def test_load_detoxify_toxigen_summary_requires_explicit_valid_file(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
 
-        self.assertEqual(len(out), 7)
-        self.assertEqual(set(out["scope"]), {"global", "community_type"})
-        self.assertEqual(set(out["stratum"]), {"all", "controversial", "normal"})
+        self.assertIsNone(load_detoxify_toxigen_summary(None))
 
-        posts = out[
-            (out["scope"] == "global")
-            & (out["stratum"] == "all")
-            & (out["interaction_scope"] == "all_posts")
-        ].iloc[0]
-        comments = out[
-            (out["scope"] == "global")
-            & (out["stratum"] == "all")
-            & (out["interaction_scope"] == "all_comments")
-        ].iloc[0]
-        sample = out[out["interaction_scope"] == "stratified_1k_post_sample"].iloc[0]
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "summary.csv"
+            pd.DataFrame(
+                {
+                    "scope": ["global", "global", "global"],
+                    "stratum": ["all", "all", "all"],
+                    "interaction_scope": [
+                        "all_posts",
+                        "all_comments",
+                        "stratified_1k_post_sample",
+                    ],
+                    "n": [10, 20, 5],
+                    "toxigen_mean": [0.1, 0.2, 0.3],
+                    "detoxify_toxicity_mean": [0.11, 0.21, 0.31],
+                    "pearson_correlation": [0.7, 0.8, 0.9],
+                    "spearman_correlation": [0.6, 0.7, 0.8],
+                    "source_file": ["a.csv", "b.csv", "c.csv"],
+                }
+            ).to_csv(path, index=False)
 
-        self.assertEqual(posts["n"], 368727)
-        self.assertEqual(comments["n"], 785746)
-        self.assertAlmostEqual(posts["pearson_correlation"], 0.6934661463038952)
-        self.assertAlmostEqual(comments["spearman_correlation"], 0.7375314519978158)
-        self.assertAlmostEqual(sample["pearson_correlation"], 0.7283850595598949)
+            out = load_detoxify_toxigen_summary(path)
+
+        self.assertEqual(len(out), 3)
+        self.assertAlmostEqual(out.iloc[0]["pearson_correlation"], 0.7)
 
 
 if __name__ == "__main__":
