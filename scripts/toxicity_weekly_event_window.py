@@ -46,6 +46,13 @@ def event_end(event_key: str) -> pd.Timestamp:
     return pd.Timestamp.max
 
 
+def normalize_publish_dates(publish_date: pd.Series) -> pd.Series:
+    """Convert epoch seconds or milliseconds to datetimes."""
+    numeric = pd.to_numeric(publish_date, errors="coerce")
+    numeric = numeric.mask(numeric > 100000000000, numeric / 1000)
+    return pd.to_datetime(numeric, unit="s", errors="coerce")
+
+
 def load_community(data_dir: Path, community: str) -> pd.DataFrame:
     path = data_dir / f"voat_{community}_madoc.parquet"
     if not path.exists():
@@ -55,17 +62,17 @@ def load_community(data_dir: Path, community: str) -> pd.DataFrame:
         path,
         columns=["user_id", "publish_date", "toxicity_toxigen"],
     )
-    df = df.dropna(subset=["user_id", "publish_date", "toxicity_toxigen"]).copy()
+    df = df.dropna(subset=["user_id", "publish_date"]).copy()
     df["community"] = community
     df["user_id"] = df["user_id"].astype(str)
-    df["published_at"] = pd.to_datetime(
-        pd.to_numeric(df["publish_date"], errors="coerce"),
-        unit="s",
-        errors="coerce",
-    )
+    df["published_at"] = normalize_publish_dates(df["publish_date"])
     df = df.dropna(subset=["published_at"])
-    first_seen = df.groupby("user_id")["published_at"].min().rename("first_seen")
-    return df.join(first_seen, on="user_id")
+    return df
+
+
+def attach_global_first_seen(data: pd.DataFrame) -> pd.DataFrame:
+    first_seen = data.groupby("user_id")["published_at"].min().rename("first_seen")
+    return data.join(first_seen, on="user_id")
 
 
 def assign_event_cohort(first_seen: pd.Series, event_key: str) -> pd.Series:
@@ -92,14 +99,15 @@ def summarize_group(group: pd.DataFrame) -> pd.Series:
 
 def compute_weekly_windows(data: pd.DataFrame) -> pd.DataFrame:
     rows = []
+    scored = data.dropna(subset=["toxicity_toxigen"]).copy()
     for event_key in EVENT_ORDER:
         event_date = EVENTS_CHRONO[event_key]
         window_start = event_date + pd.Timedelta(weeks=min(WEEK_OFFSETS))
         window_end = event_date + pd.Timedelta(weeks=max(WEEK_OFFSETS) + 1)
 
-        window = data[
-            (data["published_at"] >= window_start)
-            & (data["published_at"] < window_end)
+        window = scored[
+            (scored["published_at"] >= window_start)
+            & (scored["published_at"] < window_end)
         ].copy()
         if window.empty:
             continue
@@ -112,53 +120,30 @@ def compute_weekly_windows(data: pd.DataFrame) -> pd.DataFrame:
         window["cohort_group"] = assign_event_cohort(window["first_seen"], event_key)
         window = window[window["cohort_group"].isin(["existing", "event_arrival"])].copy()
 
-        summary = (
-            window.groupby(["community", "event", "event_label", "relative_week", "cohort_group"])
+        group_cols = ["community", "event", "event_label", "relative_week", "cohort_group"]
+        community_summary = (
+            window.groupby(group_cols)
             .apply(summarize_group, include_groups=False)
             .reset_index()
         )
-        rows.append(summary)
+
+        global_summary = (
+            window.groupby(["event", "event_label", "relative_week", "cohort_group"])
+            .apply(summarize_group, include_groups=False)
+            .reset_index()
+        )
+        global_summary.insert(0, "community", "global")
+        rows.extend([community_summary, global_summary])
 
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
-
-
-def add_global_rows(weekly: pd.DataFrame) -> pd.DataFrame:
-    if weekly.empty:
-        return weekly
-
-    weighted = []
-    for keys, group in weekly.groupby(["event", "event_label", "relative_week", "cohort_group"]):
-        event, event_label, relative_week, cohort_group = keys
-        n_users = int(group["n_users"].sum())
-        n_posts = int(group["n_posts"].sum())
-        weighted.append(
-            {
-                "community": "global",
-                "event": event,
-                "event_label": event_label,
-                "relative_week": relative_week,
-                "cohort_group": cohort_group,
-                "n_users": n_users,
-                "n_posts": n_posts,
-                "toxicity_user_mean": (
-                    float(np.average(group["toxicity_user_mean"], weights=group["n_users"]))
-                    if n_users > 0
-                    else np.nan
-                ),
-                "toxicity_activity_mean": (
-                    float(np.average(group["toxicity_activity_mean"], weights=group["n_posts"]))
-                    if n_posts > 0
-                    else np.nan
-                ),
-            }
-        )
-    return pd.concat([weekly, pd.DataFrame(weighted)], ignore_index=True)
 
 
 def summarize_prepost(weekly: pd.DataFrame) -> pd.DataFrame:
     global_weekly = weekly[weekly["community"] == "global"].copy()
     rows = []
-    for (event, label, cohort), group in global_weekly.groupby(["event", "event_label", "cohort_group"]):
+    for (event, label, cohort), group in global_weekly.groupby(
+        ["event", "event_label", "cohort_group"]
+    ):
         pre = group[group["relative_week"].between(-4, -1)]
         post = group[group["relative_week"].between(0, 4)]
         rows.append(
@@ -210,7 +195,9 @@ def plot_global_weekly(weekly: pd.DataFrame, output_path: Path) -> None:
         for row, (metric, ylabel) in enumerate(metrics):
             ax = axes[row, col]
             for cohort_group in ["existing", "event_arrival"]:
-                sub = event_df[event_df["cohort_group"] == cohort_group].sort_values("relative_week")
+                sub = event_df[event_df["cohort_group"] == cohort_group].sort_values(
+                    "relative_week"
+                )
                 if sub.empty:
                     continue
                 ax.plot(
@@ -251,8 +238,8 @@ def main() -> None:
         LOGGER.info("Loading %s", community)
         all_data.append(load_community(args.data_dir, community))
 
-    data = pd.concat(all_data, ignore_index=True)
-    weekly = add_global_rows(compute_weekly_windows(data))
+    data = attach_global_first_seen(pd.concat(all_data, ignore_index=True))
+    weekly = compute_weekly_windows(data)
     prepost = summarize_prepost(weekly)
 
     results_dir = args.output_dir / "results"
