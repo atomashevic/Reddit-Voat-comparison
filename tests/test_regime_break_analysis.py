@@ -1,10 +1,13 @@
 import unittest
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from scripts.regime_break_analysis import (
+    REPO_ROOT,
     break_index_for_month,
+    display_path,
     fit_segmented_model,
     find_best_segmented_model,
 )
@@ -67,6 +70,16 @@ class RegimeBreakAnalysisTests(unittest.TestCase):
 
         self.assertEqual(break_index_for_month(months, pd.Timestamp("2018-08-12")), 1)
         self.assertEqual(break_index_for_month(months, pd.Timestamp("2018-09-01")), 2)
+
+    def test_display_path_uses_repo_relative_path_for_repo_outputs(self):
+        path = REPO_ROOT / "results" / "basic" / "compare" / "figures" / "plot.png"
+
+        self.assertEqual(display_path(path), "results/basic/compare/figures/plot.png")
+
+    def test_display_path_keeps_external_absolute_path(self):
+        path = Path("/tmp/not-this-repo/plot.png")
+
+        self.assertEqual(display_path(path), "/tmp/not-this-repo/plot.png")
 
 
 if __name__ == "__main__":

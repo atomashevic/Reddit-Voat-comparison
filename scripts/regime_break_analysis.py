@@ -128,6 +128,15 @@ def configure_logging(level: str) -> None:
     )
 
 
+def display_path(path: Path) -> str:
+    """Return a stable repo-relative path when the output lives under this checkout."""
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(resolved)
+
+
 def month_distance(a: pd.Timestamp, b: pd.Timestamp) -> int:
     return abs((a.year - b.year) * 12 + (a.month - b.month))
 
@@ -1081,8 +1090,13 @@ def main() -> None:
         f"Reference event (GA ban): {EVENTS['B'].date()} (month={EVENTS['B'].strftime('%Y-%m')})"
     )
     summary_lines.append(
-        f"Global segmented-fit figure: {figure_path if figure_written else 'not generated'}"
+        f"Global segmented-fit figure: {display_path(figure_path) if figure_written else 'not generated'}"
     )
+    available_rolling = sorted(k for k in ei_definitions if k.startswith("rolling_tenure_"))
+    requested_rolling = ", ".join(f"{tenure}m" for tenure in args.rolling_tenures) or "none"
+    available_rolling_text = ", ".join(available_rolling) if available_rolling else "none"
+    summary_lines.append(f"Rolling-tenure E-I definitions requested: {requested_rolling}")
+    summary_lines.append(f"Rolling-tenure E-I definitions available: {available_rolling_text}")
     summary_lines.append("")
 
     if results_df.empty:
