@@ -19,6 +19,7 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -82,14 +83,20 @@ def parse_month(edge_file: Path, community: str) -> str:
     return edge_file.stem.removeprefix(prefix)
 
 
+def normalize_publish_dates(publish_date: pd.Series) -> pd.Series:
+    """Convert epoch seconds or milliseconds to datetimes."""
+    numeric = pd.to_numeric(publish_date, errors="coerce")
+    numeric = numeric.mask(numeric > 100000000000, numeric / 1000)
+    return pd.to_datetime(numeric, unit="s", errors="coerce")
+
+
 def read_first_seen(data_dir: Path, community: str) -> pd.DataFrame:
     path = data_dir / f"voat_{community}_madoc.parquet"
     if not path.exists():
         raise FileNotFoundError(f"Missing Voat data parquet: {path}")
     df = pd.read_parquet(path, columns=["user_id", "publish_date"])
     df["user_id"] = df["user_id"].astype(str)
-    publish_seconds = pd.to_numeric(df["publish_date"], errors="coerce")
-    df["first_seen_dt"] = pd.to_datetime(publish_seconds, unit="s", errors="coerce")
+    df["first_seen_dt"] = normalize_publish_dates(df["publish_date"])
     first_seen = (
         df.dropna(subset=["user_id", "first_seen_dt"])
         .groupby("user_id", as_index=False)["first_seen_dt"]
@@ -111,13 +118,18 @@ def read_user_month_metrics(results_root: Path, community: str) -> pd.DataFrame:
 
 
 def read_degrees(edge_file: Path) -> pd.Series:
-    edges = pd.read_csv(
-        edge_file,
-        sep=r"\s+",
-        names=["source", "target"],
-        dtype=str,
-        engine="python",
-    ).dropna(subset=["source", "target"])
+    if edge_file.stat().st_size == 0:
+        return pd.Series(dtype=float)
+    try:
+        edges = pd.read_csv(
+            edge_file,
+            sep=r"\s+",
+            names=["source", "target"],
+            dtype=str,
+            engine="python",
+        ).dropna(subset=["source", "target"])
+    except EmptyDataError:
+        return pd.Series(dtype=float)
     if edges.empty:
         return pd.Series(dtype=float)
 
@@ -309,7 +321,9 @@ def build_network_summary(
             if not n_cohort:
                 continue
             pop_share = n_cohort / n_nodes
-            degree_share = float(cohort_nodes["degree"].sum()) / total_degree if total_degree else np.nan
+            degree_share = (
+                float(cohort_nodes["degree"].sum()) / total_degree if total_degree else np.nan
+            )
             monthly_rows.append(
                 {
                     "community": community,
@@ -418,7 +432,9 @@ def summarize_survival_definition(
             row[f"median_survival_months_{prefix}"] = float(label_group["survival_months"].median())
             for horizon in SURVIVAL_HORIZONS:
                 row[f"km_survival_{horizon}m_{prefix}"] = survival_at(curve, horizon)
-                row[f"retention_{horizon}m_{prefix}"] = float(label_group[f"retained_{horizon}m"].mean())
+                row[f"retention_{horizon}m_{prefix}"] = float(
+                    label_group[f"retained_{horizon}m"].mean()
+                )
 
         for horizon in SURVIVAL_HORIZONS:
             row[f"km_survival_{horizon}m_high_minus_lower"] = (
@@ -475,9 +491,13 @@ def summarize_hubs(users: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
                     "fixed_cohort": cohort,
                     "hub_fraction": fraction,
                     "hub_equality_baseline": fraction,
-                    "n_users": int(cohort_users["user_id"].nunique()),
-                    "median_degree_share_ratio": float(cohort_months["degree_share_ratio"].median()),
-                    "share_months_underrepresented": float((cohort_months["degree_share_ratio"] < 1).mean()),
+                    "n_users": int(len(cohort_users)),
+                    "median_degree_share_ratio": float(
+                        cohort_months["degree_share_ratio"].median()
+                    ),
+                    "share_months_underrepresented": float(
+                        (cohort_months["degree_share_ratio"] < 1).mean()
+                    ),
                     "mean_ever_hub_rate": float(cohort_users[hub_col].mean()),
                     "high_activity_ever_hub_rate": (
                         float(high_activity[hub_col].mean()) if not high_activity.empty else np.nan
@@ -485,6 +505,56 @@ def summarize_hubs(users: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
                 }
             )
     return sort_by_cohort(pd.DataFrame(rows), ["hub_fraction"])
+
+
+def build_manuscript_table(primary_global: pd.DataFrame, hubs: pd.DataFrame) -> pd.DataFrame:
+    primary_hubs = hubs[hubs["hub_fraction"] == PRIMARY_HUB_FRACTION].copy()
+    table = primary_global[
+        [
+            "fixed_cohort",
+            "n_users",
+            "n_high_toxicity",
+            "km_survival_3m_high_minus_lower",
+            "km_survival_12m_high_minus_lower",
+        ]
+    ].merge(
+        primary_hubs[
+            [
+                "fixed_cohort",
+                "median_degree_share_ratio",
+                "mean_ever_hub_rate",
+                "high_activity_ever_hub_rate",
+            ]
+        ],
+        on="fixed_cohort",
+        how="left",
+    )
+    table["hub_rate_equality_baseline_top10"] = PRIMARY_HUB_FRACTION
+    table = table.rename(
+        columns={
+            "fixed_cohort": "cohort",
+            "n_high_toxicity": "n_high_early_toxicity",
+            "km_survival_3m_high_minus_lower": "km_3m_high_minus_lower",
+            "km_survival_12m_high_minus_lower": "km_12m_high_minus_lower",
+            "mean_ever_hub_rate": "mean_ever_hub_rate_top10",
+            "high_activity_ever_hub_rate": "high_activity_ever_hub_rate_top10",
+        }
+    )
+    ordered = [
+        "cohort",
+        "n_users",
+        "n_high_early_toxicity",
+        "km_3m_high_minus_lower",
+        "km_12m_high_minus_lower",
+        "median_degree_share_ratio",
+        "mean_ever_hub_rate_top10",
+        "hub_rate_equality_baseline_top10",
+        "high_activity_ever_hub_rate_top10",
+    ]
+    table = table[ordered].round(4)
+    table["fixed_cohort"] = table["cohort"]
+    table = sort_by_cohort(table, []).drop(columns=["fixed_cohort"])
+    return table
 
 
 def plot_global_km(curves: pd.DataFrame, output_path: Path) -> None:
@@ -576,12 +646,17 @@ def main() -> None:
     primary_global = primary[primary["community"] == "global"].copy()
     sensitivity = summarize_sensitivity(users)
     hubs = summarize_hubs(users, monthly)
+    manuscript_table = build_manuscript_table(primary_global, hubs)
 
     results_dir = args.output_dir / "results"
     figures_dir = args.output_dir / "figures"
     results_dir.mkdir(parents=True, exist_ok=True)
     primary_global.to_csv(results_dir / "fixed_cohort_survival_retention_summary.csv", index=False)
-    sensitivity.to_csv(results_dir / "fixed_cohort_toxicity_definition_sensitivity.csv", index=False)
+    manuscript_table.to_csv(results_dir / "fixed_cohort_manuscript_table.csv", index=False)
+    sensitivity.to_csv(
+        results_dir / "fixed_cohort_toxicity_definition_sensitivity.csv",
+        index=False,
+    )
     hubs.to_csv(results_dir / "fixed_cohort_hub_sensitivity_summary.csv", index=False)
 
     if not args.skip_figures:
