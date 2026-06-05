@@ -1,0 +1,128 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=black, urlcolor=black}
+\newcommand{\cref}[1]{\ref{#1}}
+\onehalfspacing
+\pagestyle{fancy}
+\fancyhf{}
+\setlength{\headheight}{14pt}
+\emergencystretch=2em
+\lhead{Voat toxicity calibration}
+\rhead{Detoxify--ToxiGen comparison}
+\cfoot{\thepage}
+
+\title{A Voat-Side Calibration Report on Detoxify and ToxiGen Toxicity Scores}
+\author{Computational Social Dynamics Laboratory}
+\date{2 June 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report records a Voat-side sensitivity analysis of the manuscript toxicity results after re-scoring the examined Voat communities with Detoxify.  The analysis covers 1,154,473 eligible Voat messages: 368,727 submissions and 785,746 comments from the twelve investigated communities.  Detoxify's general toxicity score agrees strongly with the older ToxiGen score on the same messages (Pearson $r=0.7159$; Spearman $\rho=0.7108$), but it also separates the broad toxicity signal into severe toxicity, identity attack, insult, and threat.  The principal conclusion is conservative: the older ToxiGen findings are not overturned on the Voat side.  They are sharpened.  Comments are more toxic than submissions; the broad signal is largely insult-like rather than severe or threatening; identity attack is concentrated but not identical to the general toxicity ordering; and threat is too sparse to support the main narrative by itself.
+\end{abstract}
+
+\section{Purpose and Scope}
+The paper and subsequent revision analyses used ToxiGen-derived toxicity as the operational measure of toxic expression.  The present report asks whether the Voat-side conclusions change when the same corpus is evaluated by Detoxify's \texttt{unbiased} RoBERTa model.  It is written as a calibration memorandum rather than a replacement manuscript.  Its evidentiary domain is deliberately narrow: Voat submissions and comments in the twelve examined communities, scored on the same message rows that carry the older ToxiGen score.  Reddit-side Detoxify scores have not yet been generated, so the original Reddit--Voat heatmap and any strict cross-platform statements remain ToxiGen-based until the Reddit side is also rescored.
+
+The report has three comparisons.  First, it compares ToxiGen toxicity with Detoxify general toxicity on identical Voat messages.  Second, it decomposes the Detoxify signal into severe toxicity, identity attack, insult, and threat.  Third, it repeats the Voat-side forms of the paper and revision analyses: event-period summaries for the normal communities, the regime-volume panel analog, and the A--D+ cohort follow-up.
+
+\section{Materials}
+The corpus consists of all eligible Voat rows from the communities CringeAnarchy, fatpeoplehate, GreatAwakening, MensRights, milliondollarextreme, KotakuInAction, funny, gaming, gifs, pics, technology, and videos.  Eligibility required an interaction type of submission or comment, non-empty content, and a non-missing ToxiGen score.  The scoring files were produced by \texttt{scripts/compare\_detoxify\_toxigen\_sample.py} using \texttt{Detoxify('unbiased', device='cuda')}.  The submission run and the comment run both report \texttt{cuda:0} on an NVIDIA A30.  The analytic tables were produced by \texttt{scripts/analyze\_detoxify\_toxicity\_results.py} and the present report by \texttt{scripts/build\_detoxify\_lab\_report.py}.
+
+\input{tables/global.tex}
+\input{tables/corr.tex}
+
+\section{Calibration of the General Toxicity Score}
+The general Detoxify score is not a foreign measurement of the corpus.  It is strongly associated with ToxiGen on the same messages, with the total Voat-side association shown in \cref{tab:calibration} and \cref{fig:calibration}.  Detoxify is, however, lower in mean level: for all posts and comments together the mean Detoxify toxicity is 0.1792, compared with the higher ToxiGen mean shown in \cref{tab:global-means}.  The difference is not a contradiction.  It indicates a change of scale and thresholding behavior, not a reversal of rank structure.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.72\textwidth]{figures/fig01_toxigen_detoxify_hexbin.pdf}
+  \caption{Message-level association between the older ToxiGen toxicity score and Detoxify general toxicity for Voat posts and comments.  The dashed line is equality.}
+  \label{fig:calibration}
+\end{figure}
+
+Comments carry much of the corpus-level toxic expression.  The mean Detoxify toxicity is 0.1125 for submissions and 0.2105 for comments.  This difference matters for interpreting the earlier post-only Detoxify check: it was a useful first calibration but it understated the total Voat-side level because the comment stream is both larger and more toxic.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\textwidth]{figures/fig02_global_means_by_scope.pdf}
+  \caption{Global mean scores for submissions, comments, and the combined Voat-side corpus.  Detoxify's diagnostic labels show that severe toxicity and threat are rare compared with general toxicity and insult.}
+  \label{fig:globalmeans}
+\end{figure}
+
+\section{Community Ordering and Diagnostic Content}
+The community ordering under Detoxify general toxicity is consistent with the manuscript's substantive use of toxicity: controversial communities are generally higher, and fatpeoplehate remains the most toxic large community by the general Detoxify score.  Yet the diagnostic labels prevent an over-simple reading.  Identity attack does not merely reproduce the general-toxicity ranking, and threat is sparse across all communities.
+
+\input{tables/community.tex}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.86\textwidth]{figures/fig03_community_detoxify_general.pdf}
+  \caption{Mean Detoxify general toxicity by community and interaction type.  Comments are usually higher than submissions, making the total Voat-side comparison more severe than the post-only comparison.}
+  \label{fig:communitygeneral}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.78\textwidth]{figures/fig04_special_label_heatmap.pdf}
+  \caption{Mean Detoxify special-label scores for all Voat posts and comments.  Insult is the largest diagnostic component; severe toxicity and threat remain tail phenomena.}
+  \label{fig:specialheat}
+\end{figure}
+
+\section{Relation to the Paper Results}
+The paper's global figure uses ToxiGen to compare Reddit and Voat toxicity by event period.  Detoxify cannot yet replace that full panel because Reddit has not been rescored.  It can, however, test whether the Voat side of the finding is fragile.  It is not.  In the six normal communities, the combined Voat-side Detoxify means rise across the chronological event periods, matching the direction of the ToxiGen summaries in \cref{tab:period-means} and \cref{fig:periods}.  The diagnostic labels show that the increase is not driven by threats or severe toxicity.  It is primarily broad toxicity and insult, with identity attack rising as a smaller but visible component.
+
+\input{tables/period.tex}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\textwidth]{figures/fig05_event_period_trajectories.pdf}
+  \caption{Chronological event-period means for the six normal Voat communities, using posts and comments together.  These are Voat-side means, not Reddit--Voat differences.}
+  \label{fig:periods}
+\end{figure}
+
+\section{Relation to the Revision Analyses}
+The revision analyses added mechanism checks around volume, integration, and cohort composition.  The Detoxify analog of the regime-volume panel does not produce a strong newcomer-share interaction for general Detoxify toxicity or for severe, identity, insult, or threat.  This is consistent with a cautious interpretation: Detoxify supports the presence and ordering of Voat-side toxicity, but it does not turn the volume-integration model into a strong causal mechanism.
+
+\input{tables/panel.tex}
+
+The cohort follow-up is more informative descriptively.  The pooled A--D+ cohort table shows the same broad pattern under ToxiGen and Detoxify general toxicity, while again showing that threat is extremely small.  This supports the revision's restrained language: cohort structure is relevant to observed toxicity, but the toxic signal is mostly ordinary hostile or insulting language rather than explicit threat.
+
+\input{tables/cohort.tex}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.82\textwidth]{figures/fig06_cohort_means.pdf}
+  \caption{Pooled A--D+ cohort means over all examined Voat communities, using activity-weighted means for posts and comments.}
+  \label{fig:cohorts}
+\end{figure}
+
+\section{Interpretive Conclusions}
+Four conclusions follow.  First, Detoxify validates the older Voat-side ToxiGen signal at the level required for a robustness check: the two scores are strongly associated and preserve the major substantive ordering.  Second, comments must be included for a total Voat-side comparison.  They are more numerous and more toxic than submissions, so a submission-only Detoxify check is conservative with respect to the total Voat-side level.  Third, Detoxify sharpens the interpretation of toxicity.  The signal is dominated by broad toxicity and insult; identity attack is meaningful but differently distributed; severe toxicity and threat are rare.  Fourth, the paper should not claim that Detoxify independently reproduces the full Reddit--Voat comparison until Reddit is scored.  The correct statement is narrower and stronger: on the Voat side, including comments, the manuscript's ToxiGen-based toxicity conclusions are robust in direction and community ordering, while Detoxify shows that the mechanism is chiefly insultive and hostile expression rather than severe threat.
+
+\section{Records and Reproducibility}
+The principal generated files are:
+\begin{itemize}
+  \item \path{results/toxicity/voat/results/voat_detoxify_unbiased_all_posts_scores_all_communities.csv}
+  \item \path{results/toxicity/voat/results/voat_detoxify_unbiased_all_comments_scores_all_communities.csv}
+  \item \path{results/toxicity/voat/results/voat_detoxify_unbiased_all_activity_analysis_*.csv}
+  \item \path{results/toxicity/voat/report/detoxify_voat_lab_report.tex}
+\end{itemize}
+All counts in this report are derived from those files.  The total analyzed Voat-side corpus contains 1,154,473 scored messages.
+
+\end{document}

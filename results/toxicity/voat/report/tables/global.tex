@@ -1,0 +1,17 @@
+\begin{table}[htbp]
+\centering
+\scriptsize
+\caption{Global Voat-side toxicity means by message scope. The rows compare the older ToxiGen score to Detoxify's general and diagnostic outputs on identical Voat messages.}
+\label{tab:global-means}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Scope & N & ToxiGen mean & Detoxify mean & Severe mean & Identity mean & Insult mean & Threat mean & Detoxify > .5 \\
+\midrule
+post & 368727 & 0.1311 & 0.1125 & 0.00226 & 0.01368 & 0.05575 & 0.00316 & 0.1018 \\
+comment & 785746 & 0.2372 & 0.2105 & 0.00572 & 0.02796 & 0.11024 & 0.00774 & 0.2047 \\
+posts+comments & 1154473 & 0.2033 & 0.1792 & 0.00461 & 0.02340 & 0.09284 & 0.00628 & 0.1718 \\
+\bottomrule
+\end{tabular}
+}
+\end{table}

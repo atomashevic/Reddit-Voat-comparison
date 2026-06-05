@@ -1,0 +1,13 @@
+platform,community,community_type,eligible_posts,sample_requested_n,sample_actual_n
+voat,cringeanarchy,controversial,939,84,84
+voat,fatpeoplehate,controversial,74806,84,84
+voat,greatawakening,controversial,103156,84,84
+voat,mensrights,controversial,1725,84,84
+voat,milliondollarextreme,controversial,7351,83,83
+voat,kotakuinaction,controversial,2996,83,83
+voat,funny,normal,46762,83,83
+voat,gaming,normal,28646,83,83
+voat,gifs,normal,8015,83,83
+voat,pics,normal,14862,83,83
+voat,technology,normal,34678,83,83
+voat,videos,normal,44791,83,83
