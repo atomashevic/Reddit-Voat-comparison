@@ -1,0 +1,12 @@
+{
+  "batch_size": 16,
+  "cuda_available": true,
+  "cuda_device": "NVIDIA A30",
+  "detoxify_model": "unbiased",
+  "interaction_type": "comment",
+  "mode": "all_comments",
+  "model_device": "cuda:0",
+  "requested_device": "cuda",
+  "scored_rows": 785746,
+  "torch_version": "2.7.1+cu126"
+}
