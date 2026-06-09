@@ -169,7 +169,9 @@ def latex_table(
     return "\n".join(lines)
 
 
-def global_summary_tables(analyses: dict[str, dict[str, pd.DataFrame]]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def global_summary_tables(
+    analyses: dict[str, dict[str, pd.DataFrame]], results_dir: Path
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     rows = []
     corr_rows = []
     for scope, parts in analyses.items():
@@ -188,7 +190,8 @@ def global_summary_tables(analyses: dict[str, dict[str, pd.DataFrame]]) -> tuple
                 "Detoxify > .5": fmt_num(glob.loc["detoxify_toxicity", "share_gt_0_5"], 4),
             }
         )
-        corr_path = RESULTS_DIR / f"voat_detoxify_unbiased_all_{'activity' if scope == 'posts+comments' else scope + 's'}_correlations_global.csv"
+        corr_stem = "activity" if scope == "posts+comments" else scope + "s"
+        corr_path = results_dir / f"voat_detoxify_unbiased_all_{corr_stem}_correlations_global.csv"
         if corr_path.exists():
             corr = pd.read_csv(corr_path)
             tox = corr[corr["detoxify_col"] == "detoxify_toxicity"].iloc[0]
@@ -413,9 +416,10 @@ def create_figures(
 def write_tables(
     analyses: dict[str, dict[str, pd.DataFrame]],
     table_dir: Path,
+    results_dir: Path,
 ) -> dict[str, str]:
     tables: dict[str, str] = {}
-    global_df, corr_df = global_summary_tables(analyses)
+    global_df, corr_df = global_summary_tables(analyses, results_dir)
     tables["global"] = latex_table(
         global_df,
         "Global Voat-side toxicity means by message scope. The rows compare the older ToxiGen score to Detoxify's general and diagnostic outputs on identical Voat messages.",
@@ -527,8 +531,8 @@ def write_tables(
     return tables
 
 
-def manuscript_text(analyses: dict[str, dict[str, pd.DataFrame]]) -> str:
-    global_df, corr_df = global_summary_tables(analyses)
+def manuscript_text(analyses: dict[str, dict[str, pd.DataFrame]], results_dir: Path) -> str:
+    global_df, corr_df = global_summary_tables(analyses, results_dir)
     glob = global_df.set_index("Scope")
     corr = corr_df.set_index("Scope")
     total_n = glob.loc["posts+comments", "N"]
@@ -701,11 +705,11 @@ def main() -> None:
     analyses["comment"]["scores"] = comment_scores
 
     create_figures(analyses, scores, fig_dir)
-    write_tables(analyses, table_dir)
+    write_tables(analyses, table_dir, args.results_dir)
 
     tex_name = "detoxify_voat_lab_report.tex"
     tex_path = args.report_dir / tex_name
-    tex_path.write_text(manuscript_text(analyses))
+    tex_path.write_text(manuscript_text(analyses, args.results_dir))
     if args.compile:
         compile_report(args.report_dir, tex_name)
     print(f"Wrote {tex_path}")

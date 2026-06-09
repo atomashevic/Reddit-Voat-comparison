@@ -116,9 +116,9 @@ def load_scores(scores_files: list[Path]) -> pd.DataFrame:
     return df.dropna(subset=["dt_time", "user_id", *LABELS.values()]).copy()
 
 
-def assign_period(month_dt: pd.Timestamp) -> str | None:
+def assign_period(dt_time: pd.Timestamp) -> str | None:
     for period, (start, end) in EVENT_PERIODS.items():
-        if start <= month_dt < end:
+        if start <= dt_time < end:
             return period
     return None
 
@@ -178,7 +178,7 @@ def monthly_metrics(scores: pd.DataFrame) -> pd.DataFrame:
 
 def event_period_means(scores: pd.DataFrame) -> pd.DataFrame:
     data = scores.copy()
-    data["period"] = data["month_dt"].apply(assign_period)
+    data["period"] = data["dt_time"].apply(assign_period)
     data = data[data["period"].notna()].copy()
     rows = []
     for (ctype, community, period), group in data.groupby(

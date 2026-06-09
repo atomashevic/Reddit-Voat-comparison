@@ -32,6 +32,7 @@ networks/
 # This allows most CSVs and reasonable-sized figures to be tracked
 results/**/*.parquet
 results/reputation/**/*.parquet
+results/toxicity/voat/results/voat_detoxify_*_scores*.csv
 # Figure exports (PDFs not shared)
 figures/**/*.pdf
 # Large PDF files

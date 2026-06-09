@@ -395,7 +395,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--output-prefix")
     parser.add_argument("--overwrite", action="store_true", help="Rescore community outputs that already exist.")
-    parser.add_argument("--drop-content", action="store_true", help="Do not duplicate source text in score CSVs.")
+    content_group = parser.add_mutually_exclusive_group()
+    content_group.add_argument(
+        "--drop-content",
+        dest="drop_content",
+        action="store_true",
+        help="Do not duplicate source text in score CSVs. This is the default.",
+    )
+    content_group.add_argument(
+        "--keep-content",
+        dest="drop_content",
+        action="store_false",
+        help="Keep raw source text in score CSVs.",
+    )
+    parser.set_defaults(drop_content=True)
     return parser.parse_args()
 
 
