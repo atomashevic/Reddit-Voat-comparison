@@ -31,6 +31,12 @@ NORMAL_COMMUNITIES = ["funny", "gaming", "gifs", "pics", "technology", "videos"]
 POST_BAN_COHORTS = ["fph_pg", "pg_ga", "ga_td", "td_shutdown"]
 COHORT_ORDER = ["pre_fph", *POST_BAN_COHORTS]
 COHORT_RANK = {cohort: idx for idx, cohort in enumerate(COHORT_ORDER)}
+COHORT_PANEL_LABELS = {
+    "fph_pg": "Users arriving between\nFPH and PG bans",
+    "pg_ga": "Users arriving between\nPG and GA bans",
+    "ga_td": "Users arriving between\nGA and TD bans",
+    "td_shutdown": "Users arriving after\nthe TD ban",
+}
 SHUTDOWN_MONTH = pd.Period("2020-12", freq="M")
 
 PRIMARY_EARLY_MONTHS = 3
@@ -582,12 +588,12 @@ def plot_global_km(curves: pd.DataFrame, output_path: Path) -> None:
                 color=colors[group],
                 linewidth=1.8,
             )
-        ax.set_title(cohort)
+        ax.set_title(COHORT_PANEL_LABELS.get(cohort, cohort))
         ax.grid(alpha=0.25)
         ax.set_ylim(0, 1.02)
 
     for ax in axes[:, 0]:
-        ax.set_ylabel("Kaplan-Meier survival")
+        ax.set_ylabel("Survival function, S(t)")
     for ax in axes[-1, :]:
         ax.set_xlabel("Months since first active month")
     axes[0, 0].legend(frameon=False)
