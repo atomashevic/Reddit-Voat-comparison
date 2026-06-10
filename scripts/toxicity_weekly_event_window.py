@@ -185,8 +185,8 @@ def plot_global_weekly(weekly: pd.DataFrame, output_path: Path) -> None:
     labels = {"existing": "Existing users", "event_arrival": "Event-window arrivals"}
     fig, axes = plt.subplots(3, 4, figsize=(14, 8), sharex=True, sharey="row")
     metrics = [
-        ("toxicity_user_mean", "User-weighted mean toxicity"),
-        ("toxicity_activity_mean", "Activity-weighted mean toxicity"),
+        ("toxicity_user_mean", "User-weighted mean\nToxiGen classifier probability"),
+        ("toxicity_activity_mean", "Activity-weighted mean\nToxiGen classifier probability"),
         ("n_posts", "Weekly posts"),
     ]
 
@@ -212,7 +212,7 @@ def plot_global_weekly(weekly: pd.DataFrame, output_path: Path) -> None:
             ax.grid(alpha=0.25)
             ax.set_title(EVENT_LABELS_CHRONO[event_key] if row == 0 else "")
             if col == 0:
-                ax.set_ylabel(ylabel)
+                ax.set_ylabel(ylabel, labelpad=8)
             if row == len(metrics) - 1:
                 ax.set_xlabel("Weeks from event")
                 ax.set_yscale("log")
@@ -220,7 +220,7 @@ def plot_global_weekly(weekly: pd.DataFrame, output_path: Path) -> None:
 
     handles, legend_labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, legend_labels, loc="upper center", ncol=2, frameon=False)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.tight_layout(rect=(0.035, 0, 1, 0.93))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150)
     plt.close(fig)

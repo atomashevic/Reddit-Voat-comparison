@@ -230,7 +230,7 @@ def plot_timeseries(
             "mean_toxigen_probability_user_ci95_high",
             "active_users",
             min_active_users_for_plot,
-            "Mean ToxiGen probability, equal-user",
+            "Mean ToxiGen classifier probability, equal-user",
         ),
         (
             "mean_toxigen_probability_activity",
@@ -238,7 +238,7 @@ def plot_timeseries(
             "mean_toxigen_probability_activity_ci95_high",
             "activity_count",
             min_activity_count_for_plot,
-            "Mean ToxiGen probability, activity",
+            "Mean ToxiGen classifier probability, activity",
         ),
     ]
     for ax, (metric, ci_low, ci_high, n_col, min_n, ylabel) in zip(axes, metrics):
@@ -272,7 +272,7 @@ def plot_timeseries(
     axes[-1].set_xlabel("Window start")
     community_label = community.replace("_", " ")
     fig.suptitle(
-        f"Voat {community_label}: 30-day cohort toxicity time series with cohort-size CIs"
+        f"Voat {community_label}: 30-day cohort ToxiGen classifier-probability time series with cohort-size CIs"
     )
     fig.text(
         0.99,
@@ -304,8 +304,8 @@ def plot_adplus_summary(summary: pd.DataFrame, output_path: Path, community: str
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
     panels = [
         ("active_users", "Active users", True),
-        ("mean_toxigen_probability_user", "Mean ToxiGen probability, equal-user", False),
-        ("mean_toxigen_probability_activity", "Mean ToxiGen probability, activity", False),
+        ("mean_toxigen_probability_user", "Mean ToxiGen classifier probability, equal-user", False),
+        ("mean_toxigen_probability_activity", "Mean ToxiGen classifier probability, activity", False),
     ]
     for ax, (metric, ylabel, log_scale) in zip(axes, panels):
         ax.bar(x, df[metric], color="#4C78A8")

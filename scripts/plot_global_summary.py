@@ -3,12 +3,12 @@
 
 8 Panels:
 1. E-I Index
-2. Mean Toxicity
+2. Mean ToxiGen classifier probability
 3. Degree Assortativity
 4. Active Users (rep > 1) split by Newcomers vs Existing
 5. Newcomer Hub Rate (share of hubs)
 6. Degree Share / Population Share Ratio
-7. Event-Period Heatmap: Voat-Reddit Toxicity Difference by Period
+7. Event-Period Heatmap: Voat-Reddit ToxiGen classifier-probability difference by period
 8. Mean Reputation
 """
 
@@ -163,9 +163,12 @@ def load_active_users_by_status(results_root: Path, start_date, end_date) -> pd.
 
 
 def add_panel_label(ax, label, fontsize=12):
-    """Add bold panel label (1), (2), etc. in upper-left corner."""
-    ax.text(-0.12, 1.08, f'({label})', transform=ax.transAxes,
-            fontsize=fontsize, fontweight='bold', va='top', ha='left')
+    """Prepend panel number to the panel title."""
+    title = ax.get_title()
+    if title:
+        ax.set_title(f"({label}) {title}")
+    else:
+        ax.set_title(f"({label})", fontsize=fontsize, fontweight="bold")
 
 
 def add_events_band(ax, label_above=True):
@@ -249,8 +252,8 @@ def main():
     ax4 = fig.add_subplot(gs[1, 2:4])  # (4) Newcomer Hub Rate
     ax5 = fig.add_subplot(gs[2, 0:2])  # (5) Degree Share / Pop Share
     ax6 = fig.add_subplot(gs[2, 2:4])  # (6) Degree Assortativity
-    ax7 = fig.add_subplot(gs[3, 0:2])  # (7) Mean Reputation (with 4.5 line)
-    ax8 = fig.add_subplot(gs[3, 2:4])  # (8) Mean Toxicity
+    ax7 = fig.add_subplot(gs[3, 0:2])  # (7) Mean Reputation (with Stack Exchange reference)
+    ax8 = fig.add_subplot(gs[3, 2:4])  # (8) Mean ToxiGen classifier probability
     ax9 = fig.add_subplot(gs[4, 1:3])  # (9) Event-Period Heatmap (centered between columns)
     
     # Compute 3-month rolling means
@@ -377,16 +380,16 @@ def main():
         ax.set_xlabel("Year")
     
     # =========================================================================
-    # PANEL 7: Mean Reputation (with 4.5 sustainability threshold)
+    # PANEL 7: Mean Reputation (with Stack Exchange 4.5 reference)
     # =========================================================================
     if "reputation_mean_voat_agg" in df.columns:
         ax7.plot(df["month_dt"], df["reputation_mean_voat_agg"],
                 color=VOAT_COLOR, linewidth=1, alpha=0.3)
         ax7.plot(df_rolling["month_dt"], df_rolling["reputation_mean_voat_agg_roll"],
                 color=VOAT_COLOR, linewidth=2.5, label="Mean (3-mo avg)")
-        # Add 4.5 sustainability threshold line (per plan)
+        # Add 4.5 Stack Exchange reference line.
         ax7.axhline(4.5, **HLINE_STYLE,
-                   label="Sustainability threshold (4.5)", zorder=2)
+                   label="Stack Exchange reference 4.5", zorder=2)
         ax7.set_ylabel("Mean Reputation", fontweight="bold")
         ax7.set_title("Mean Reputation (Voat, active users)")
         ax7.legend(loc="upper right", fontsize=8, frameon=True,
@@ -401,7 +404,7 @@ def main():
         ax7.set_title("Mean Reputation (Voat)")
 
     # =========================================================================
-    # PANEL 8: Mean Toxicity (Voat only)
+    # PANEL 8: Mean ToxiGen classifier probability (Voat only)
     # =========================================================================
     if "toxicity_mean_voat" in df.columns:
         ax8.plot(df["month_dt"], df["toxicity_mean_voat"], color=VOAT_COLOR, linewidth=1, alpha=0.3)
@@ -413,8 +416,8 @@ def main():
     #     ax8.plot(reddit_tox["month_dt"], reddit_tox["toxicity_mean"], color=REDDIT_COLOR, linewidth=1, alpha=0.3)
     #     ax8.plot(reddit_tox["month_dt"], reddit_tox["tox_roll"], color=REDDIT_COLOR, linewidth=2.5, label="Reddit (3-mo avg)")
 
-    ax8.set_ylabel("Mean Toxicity", fontweight="bold")
-    ax8.set_title("Mean Toxicity (Voat)")
+    ax8.set_ylabel("Mean ToxiGen classifier probability", fontweight="bold")
+    ax8.set_title("Mean ToxiGen classifier probability (Voat)")
     ax8.legend(loc="upper left", fontsize=8)
     ax8.xaxis.set_major_locator(mdates.YearLocator())
     ax8.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
@@ -427,7 +430,7 @@ def main():
     if heatmap_df is not None and not heatmap_pivot.empty:
         # Enhanced heatmap with better styling
         cbar_kws = {
-            'label': 'Toxicity Difference\n(Voat − Reddit)',
+            'label': 'Classifier-probability difference\n(Voat − Reddit)',
             'shrink': 0.6,
             'aspect': 20,
             'pad': 0.02
@@ -446,7 +449,7 @@ def main():
             vmax=0.18,
             square=False  # Allow rectangular for full-width layout
         )
-        ax9.set_title("Toxicity Difference by Event Period",
+        ax9.set_title("Classifier-probability difference by event period",
                      fontweight="bold", fontsize=11, pad=12)
         ax9.set_xlabel("Event Period", fontweight="bold", fontsize=11)
         ax9.set_ylabel("Community", fontweight="bold", fontsize=11)
@@ -458,7 +461,7 @@ def main():
     else:
         ax9.text(0.5, 0.5, "Heatmap data not available",
                 ha="center", va="center", transform=ax9.transAxes)
-        ax9.set_title("Voat-Reddit Toxicity Difference by Event Period")
+        ax9.set_title("Voat-Reddit classifier-probability difference by event period")
     
     # =========================================================================
     # Add panel labels (1), (2), etc.

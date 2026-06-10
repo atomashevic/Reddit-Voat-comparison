@@ -491,6 +491,7 @@ def summarize_hubs(users: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
         for cohort in POST_BAN_COHORTS:
             cohort_users = users[users["fixed_cohort"] == cohort]
             high_activity = cohort_users[cohort_users["activity_group"] == "high_activity"]
+            non_high_activity = cohort_users[cohort_users["activity_group"] != "high_activity"]
             cohort_months = monthly[monthly["fixed_cohort"] == cohort]
             rows.append(
                 {
@@ -507,6 +508,11 @@ def summarize_hubs(users: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
                     "mean_ever_hub_rate": float(cohort_users[hub_col].mean()),
                     "high_activity_ever_hub_rate": (
                         float(high_activity[hub_col].mean()) if not high_activity.empty else np.nan
+                    ),
+                    "non_high_activity_ever_hub_rate": (
+                        float(non_high_activity[hub_col].mean())
+                        if not non_high_activity.empty
+                        else np.nan
                     ),
                 }
             )
@@ -530,6 +536,7 @@ def build_manuscript_table(primary_global: pd.DataFrame, hubs: pd.DataFrame) -> 
                 "median_degree_share_ratio",
                 "mean_ever_hub_rate",
                 "high_activity_ever_hub_rate",
+                "non_high_activity_ever_hub_rate",
             ]
         ],
         on="fixed_cohort",
@@ -544,6 +551,7 @@ def build_manuscript_table(primary_global: pd.DataFrame, hubs: pd.DataFrame) -> 
             "km_survival_12m_high_minus_lower": "km_12m_high_minus_lower",
             "mean_ever_hub_rate": "mean_ever_hub_rate_top10",
             "high_activity_ever_hub_rate": "high_activity_ever_hub_rate_top10",
+            "non_high_activity_ever_hub_rate": "non_high_activity_ever_hub_rate_top10",
         }
     )
     ordered = [
@@ -556,6 +564,7 @@ def build_manuscript_table(primary_global: pd.DataFrame, hubs: pd.DataFrame) -> 
         "mean_ever_hub_rate_top10",
         "hub_rate_equality_baseline_top10",
         "high_activity_ever_hub_rate_top10",
+        "non_high_activity_ever_hub_rate_top10",
     ]
     table = table[ordered].round(4)
     table["fixed_cohort"] = table["cohort"]

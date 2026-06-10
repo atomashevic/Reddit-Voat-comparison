@@ -7,8 +7,8 @@ Panels (consistent ordering with plot_global_summary.py - activity → structure
 3. E-I Index (Voat)
 4. Mean Degree
 5. Degree Assortativity
-6. Mean Reputation (with 4.5 threshold)
-7. Mean Toxicity (Voat vs Reddit) (centered)
+6. Mean Reputation (with Stack Exchange 4.5 reference)
+7. Mean ToxiGen classifier probability (Voat vs Reddit) (centered)
 
 Event labels positioned at bottom-right of each panel.
 """
@@ -40,9 +40,12 @@ SHORT_EVENT_LABELS = {
 
 
 def add_panel_label(ax, label, fontsize=12):
-    """Add bold panel label (1), (2), etc. in upper-left corner."""
-    ax.text(-0.12, 1.08, f'({label})', transform=ax.transAxes,
-            fontsize=fontsize, fontweight='bold', va='top', ha='left')
+    """Prepend panel number to the panel title."""
+    title = ax.get_title()
+    if title:
+        ax.set_title(f"({label}) {title}")
+    else:
+        ax.set_title(f"({label})", fontsize=fontsize, fontweight="bold")
 
 
 def add_events(ax, label_above=True):
@@ -209,7 +212,7 @@ def main():
     axes[4].axhline(0, color="k", linestyle="-", linewidth=0.5, alpha=0.3)
 
     # =========================================================================
-    # Panel 6: Mean Reputation (with 4.5 sustainability threshold)
+    # Panel 6: Mean Reputation (with Stack Exchange 4.5 reference)
     # =========================================================================
     plot_lines(
         axes[5],
@@ -221,12 +224,12 @@ def main():
         "Mean Reputation",
         ylabel="Mean Reputation",
     )
-    # Add 4.5 sustainability threshold line
+    # Add Stack Exchange 4.5 reference line.
     axes[5].axhline(4.5, color='#D62728', linestyle='--', linewidth=1.5,
-                    alpha=0.7, label='Threshold (4.5)', zorder=2)
+                    alpha=0.7, label='Stack Exchange reference 4.5', zorder=2)
 
     # =========================================================================
-    # Panel 7: Mean Toxicity (Voat vs Reddit)
+    # Panel 7: Mean ToxiGen classifier probability (Voat vs Reddit)
     # =========================================================================
     plot_lines(
         axes[6],
@@ -235,8 +238,8 @@ def main():
             ("Reddit", "toxicity_mean_reddit"),
             ("Voat", "toxicity_mean_voat"),
         ],
-        "Mean Toxicity (Voat vs Reddit)",
-        ylabel="Mean Toxicity",
+        "Mean ToxiGen classifier probability (Voat vs Reddit)",
+        ylabel="Mean ToxiGen classifier probability",
     )
     maybe_band(axes[6], monthly, "toxicity_mean")
 
